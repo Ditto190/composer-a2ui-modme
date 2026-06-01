@@ -1,0 +1,62 @@
+/**
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.composer-header {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  background-color: var(--mat-sys-surface-container);
+  color: var(--mat-sys-on-surface);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  --mat-toolbar-container-background-color: var(--mat-sys-surface-container);
+  --mat-toolbar-container-text-color: var(--mat-sys-on-surface);
+}
+.spacer {
+  flex: 1 1 auto;
+}
+.composer-sidenav-container {
+  flex: 1;
+  min-height: 0;
+}
+.composer-sidenav {
+  width: 250px;
+  background-color: var(--mat-sys-surface-container);
+  border-right: 1px solid var(--mat-sys-outline-variant);
+  --mat-sidenav-container-shape: 0px;
+  --mat-drawer-container-shape: 0px;
+  border-radius: 0px;
+  --mat-sidenav-background-color: var(--mat-sys-surface-container);
+
+  ::ng-deep .mat-drawer-inner-container {
+    border-radius: 0px;
+  }
+}
+.composer-content {
+  padding: 16px;
+  box-sizing: border-box;
+  height: 100%;
+}
+.hamburger-button {
+  margin-right: 8px;
+}
+.theme-toggle-button {
+  margin-left: 8px;
+}

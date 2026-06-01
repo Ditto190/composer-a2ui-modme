@@ -1,0 +1,70 @@
+<!--
+ Copyright 2026 Google LLC
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
+
+<div class="workspace-container">
+  <div class="left-panel">
+    <a2ui-composer-chat-panel></a2ui-composer-chat-panel>
+  </div>
+  <div class="right-panel">
+    <div class="preview-section">
+      <div class="preview-frame-container">
+        <div class="frame-header">
+          <span>Rendered A2UI Preview</span>
+        </div>
+        <div class="frame-body">
+          <a2ui-composer-rendered-frame></a2ui-composer-rendered-frame>
+        </div>
+      </div>
+      <div class="preview-frame-container">
+        <div class="frame-header">
+          <span>Raw A2UI JSON</span>
+        </div>
+        <div class="frame-body">
+          <a2ui-composer-raw-frame></a2ui-composer-raw-frame>
+        </div>
+      </div>
+    </div>
+    <div class="debug-section">
+      <mat-tab-group fitInkBarToContent>
+        <mat-tab label="Data Model">
+          <div class="tab-content-container">
+            <a2ui-composer-data-model></a2ui-composer-data-model>
+          </div>
+        </mat-tab>
+        <mat-tab label="Events">
+          <div class="tab-content-container">
+            <a2ui-composer-events></a2ui-composer-events>
+          </div>
+        </mat-tab>
+        <mat-tab label="Errors">
+          <div class="tab-content-container">
+            <a2ui-composer-errors></a2ui-composer-errors>
+          </div>
+        </mat-tab>
+        <mat-tab label="Raw Messages">
+          <div class="tab-content-container">
+            <a2ui-composer-raw-messages></a2ui-composer-raw-messages>
+          </div>
+        </mat-tab>
+        <mat-tab label="Mock Rules">
+          <div class="tab-content-container">
+            <a2ui-composer-mock-rules></a2ui-composer-mock-rules>
+          </div>
+        </mat-tab>
+      </mat-tab-group>
+    </div>
+  </div>
+</div>
