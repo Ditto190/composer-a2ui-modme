@@ -14,21 +14,13 @@
  * limitations under the License.
  */
 
-import {ComponentHarness} from '@angular/cdk/testing';
+import {InjectionToken, Signal, signal} from '@angular/core';
 
-export class RenderedFrameHarness extends ComponentHarness {
-  static hostSelector = 'a2ui-composer-rendered-frame';
-
-  protected getIframeElement = this.locatorForOptional('iframe');
-
-  async hasIframe(): Promise<boolean> {
-    const iframe = await this.getIframeElement();
-    return !!iframe;
-  }
-
-  async getIframeSrc(): Promise<string | null> {
-    const iframe = await this.getIframeElement();
-    if (!iframe) return null;
-    return iframe.getAttribute('src');
-  }
-}
+/**
+ * Injection token used to query whether the host container is executing
+ * within the sandboxed boundaries of a Chrome Extension sidepanel.
+ */
+export const IS_EXTENSION_MODE = new InjectionToken<Signal<boolean>>('IS_EXTENSION_MODE', {
+  providedIn: 'root',
+  factory: () => signal(false),
+});
