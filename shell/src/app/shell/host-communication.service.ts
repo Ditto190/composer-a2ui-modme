@@ -16,6 +16,8 @@
 
 import {Injectable, inject, signal, Signal, OnDestroy} from '@angular/core';
 import {StartupResolutionService} from './startup-resolution.service';
+import {Subject} from 'rxjs';
+import {CrossFrameValidator} from './cross-frame-validator';
 
 /**
  * Schema representing a structured postMessage payload used to communicate
@@ -23,8 +25,14 @@ import {StartupResolutionService} from './startup-resolution.service';
  */
 export interface MessageEnvelope {
   type: string;
-  payload?: any;
+  payload?: unknown;
   origin: string;
+}
+
+declare global {
+  interface Window {
+    a2uiHostCommunicationService?: HostCommunicationService;
+  }
 }
 
 @Injectable({
@@ -35,14 +43,18 @@ export interface MessageEnvelope {
  * between the primary workspace shell and rendering client frames.
  */
 export class HostCommunicationService implements OnDestroy {
-  private startupResolutionService = inject(StartupResolutionService);
+  private readonly startupResolutionService = inject(StartupResolutionService);
   private iframeWindow: Window | null = null;
-  private latestEnvelopeSignal = signal<MessageEnvelope | null>(null);
+  private iframeElement: HTMLIFrameElement | null = null;
+  private readonly latestEnvelopeSignal = signal<MessageEnvelope | null>(null);
 
-  public latestEnvelope: Signal<MessageEnvelope | null> = this.latestEnvelopeSignal.asReadonly();
+  public readonly latestEnvelope: Signal<MessageEnvelope | null> =
+    this.latestEnvelopeSignal.asReadonly();
+  public readonly messageStream$ = new Subject<MessageEnvelope>();
 
-  private messageListener = (event: MessageEvent) => {
-    if (!this.iframeWindow || event.source !== this.iframeWindow) {
+  private readonly messageListener = (event: MessageEvent) => {
+    const activeWindow = this.iframeElement ? this.iframeElement.contentWindow : this.iframeWindow;
+    if (!activeWindow || event.source !== activeWindow) {
       return;
     }
 
@@ -62,19 +74,21 @@ export class HostCommunicationService implements OnDestroy {
 
     const data = event.data;
     if (data && typeof data === 'object' && data.type) {
-      const type = data.type === 'UNBLOCK_REQUEST' ? 'FORCE_UNBLOCK' : data.type;
-      this.latestEnvelopeSignal.set({
+      const type = data.type;
+      const envelope: MessageEnvelope = {
         type,
         payload: data.payload,
         origin: event.origin,
-      });
+      };
+      this.latestEnvelopeSignal.set(envelope);
+      this.messageStream$.next(envelope);
     }
   };
 
   constructor() {
     if (typeof window !== 'undefined') {
       window.addEventListener('message', this.messageListener);
-      (window as any).a2uiHostCommunicationService = this;
+      window.a2uiHostCommunicationService = this;
     }
   }
 
@@ -82,23 +96,38 @@ export class HostCommunicationService implements OnDestroy {
     this.iframeWindow = contentWindow;
   }
 
-  public sendMessage(message: {type: string; payload?: any}): void {
-    if (!this.iframeWindow) return;
+  public registerIframeElement(element: HTMLIFrameElement | null): void {
+    this.iframeElement = element;
+  }
+
+  public sendMessage(message: {type: string; payload?: unknown}): void {
+    if (!CrossFrameValidator.validateOutgoingMessage(message)) {
+      console.error('Blocked dispatch of malformed message type...', message);
+      return;
+    }
+
+    const targetWindow = this.iframeElement ? this.iframeElement.contentWindow : this.iframeWindow;
+    if (!targetWindow) return;
+
     const expectedUrl = this.startupResolutionService.getResolvedRendererUrl();
     if (!expectedUrl) return;
 
     try {
       const targetOrigin = new URL(expectedUrl, globalThis.location?.href).origin;
-      this.iframeWindow.postMessage(message, targetOrigin);
+      targetWindow.postMessage(message, targetOrigin);
     } catch (err) {
       // Ignore malformed URL
     }
   }
 
+  public sendRenderA2UI(payload: unknown[]): void {
+    this.sendMessage({type: 'RENDER_A2UI', payload});
+  }
+
   ngOnDestroy(): void {
     if (typeof window !== 'undefined') {
       window.removeEventListener('message', this.messageListener);
-      delete (window as any).a2uiHostCommunicationService;
+      delete window.a2uiHostCommunicationService;
     }
   }
 }

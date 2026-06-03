@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import {Component, OnInit, inject, signal} from '@angular/core';
+import {Component, OnInit, inject, signal, computed, WritableSignal, Signal} from '@angular/core';
 import {ReactiveFormsModule, NonNullableFormBuilder, Validators} from '@angular/forms';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatInputModule} from '@angular/material/input';
@@ -22,7 +22,11 @@ import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';
 import {MatCardModule} from '@angular/material/card';
 import {MatChipsModule} from '@angular/material/chips';
+import {MatSlideToggleModule} from '@angular/material/slide-toggle';
 import {StartupResolutionService} from '../shell/startup-resolution.service';
+import {DOCUMENT} from '@angular/common';
+import {HostCommunicationService} from '../shell/host-communication.service';
+import {CatalogManagementService} from '../storage/catalog-management.service';
 
 @Component({
   selector: 'a2ui-composer-settings',
@@ -35,6 +39,7 @@ import {StartupResolutionService} from '../shell/startup-resolution.service';
     MatIconModule,
     MatCardModule,
     MatChipsModule,
+    MatSlideToggleModule,
   ],
   templateUrl: './settings.component.ng.html',
   styleUrl: './settings.component.scss',
@@ -44,14 +49,32 @@ import {StartupResolutionService} from '../shell/startup-resolution.service';
  * connection handshakes, and developer toggle overrides.
  */
 export class SettingsComponent implements OnInit {
-  private fb = inject(NonNullableFormBuilder);
-  private startupResolutionService = inject(StartupResolutionService);
+  private readonly fb = inject(NonNullableFormBuilder);
+  private readonly startupResolutionService = inject(StartupResolutionService);
+  private readonly document = inject(DOCUMENT);
+  private readonly hostCommunicationService = inject(HostCommunicationService);
+  private readonly catalogManagementService = inject(CatalogManagementService);
 
-  public isLocked = signal(false);
-  public isThirdParty = signal(false);
-  public hideApiKey = signal(true);
+  public readonly isLocked: WritableSignal<boolean> = signal(false);
+  public readonly isThirdParty: WritableSignal<boolean> = signal(false);
+  public readonly hideApiKey: WritableSignal<boolean> = signal(true);
+  public readonly forceThirdPartyAuth: WritableSignal<boolean> = signal(false);
 
-  public settingsForm = this.fb.group({
+  public readonly bridgeConnected: Signal<boolean> = computed(
+    () => this.hostCommunicationService.latestEnvelope() !== null,
+  );
+  public readonly catalogStatus: Signal<string> = computed(() => {
+    if (this.catalogManagementService.catalogError()) return 'Error';
+    if (this.catalogManagementService.isHandshakeInProgress()) return 'Indexing';
+    if (this.catalogManagementService.activeCatalog()) return 'Connected';
+    return 'Disconnected';
+  });
+
+  public readonly catalogErrorMessage: Signal<string | null> = computed(() =>
+    this.catalogManagementService.catalogError(),
+  );
+
+  public readonly settingsForm = this.fb.group({
     rendererUrl: ['', [Validators.required, Validators.pattern(/^https?:\/\/.+/i)]],
     apiKey: [''],
   });
@@ -62,6 +85,8 @@ export class SettingsComponent implements OnInit {
 
     const is3P = this.startupResolutionService.isThirdPartyEnvironment();
     this.isThirdParty.set(is3P);
+
+    this.forceThirdPartyAuth.set(this.getStorageItem('a2ui_composer_force_3p') === 'true');
 
     const initialUrl =
       this.startupResolutionService.getResolvedRendererUrl() ||
@@ -107,9 +132,25 @@ export class SettingsComponent implements OnInit {
   }
 
   public reloadWindow(): void {
-    if (globalThis.location) {
-      globalThis.location.assign(globalThis.location.pathname);
+    if (this.document.defaultView?.location) {
+      this.document.defaultView.location.assign('/');
     }
+  }
+
+  public toggleForceThirdPartyAuth(): void {
+    if (this.isLocked()) {
+      return;
+    }
+    const newState = !this.forceThirdPartyAuth();
+    this.forceThirdPartyAuth.set(newState);
+    if (newState) {
+      this.setStorageItem('a2ui_composer_force_3p', 'true');
+      this.removeStorageItem('a2ui_composer_force_1p');
+    } else {
+      this.removeStorageItem('a2ui_composer_force_3p');
+      this.setStorageItem('a2ui_composer_force_1p', 'true');
+    }
+    this.reloadWindow();
   }
 
   private getStorageItem(key: string): string | null {

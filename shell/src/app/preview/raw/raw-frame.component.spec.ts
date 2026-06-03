@@ -18,12 +18,27 @@ import {ComponentFixture, TestBed} from '@angular/core/testing';
 import {RawFrameComponent} from './raw-frame.component';
 import {TestbedHarnessEnvironment} from '@angular/cdk/testing/testbed';
 import {RawFrameHarness} from './test/raw-frame.harness';
-import {describe, it, expect} from 'vitest';
+import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {provideNoopAnimations} from '@angular/platform-browser/animations';
 import {IS_EXTENSION_MODE} from '../../shell/environment-tokens';
-import {signal} from '@angular/core';
+import {signal, WritableSignal} from '@angular/core';
+import {HostCommunicationService} from '../../shell/host-communication.service';
+import {CatalogManagementService} from '../../storage/catalog-management.service';
 
 describe('RawFrameComponent', () => {
+  let sendRenderA2UIMock: ReturnType<typeof vi.fn>;
+  let mockActiveCatalog: WritableSignal<any>;
+
+  beforeEach(() => {
+    sendRenderA2UIMock = vi.fn();
+    mockActiveCatalog = signal({title: 'Sample Catalog'});
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
   async function setup(isExtension: boolean) {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({
@@ -31,13 +46,21 @@ describe('RawFrameComponent', () => {
       providers: [
         provideNoopAnimations(),
         {provide: IS_EXTENSION_MODE, useValue: signal(isExtension)},
+        {provide: HostCommunicationService, useValue: {sendRenderA2UI: sendRenderA2UIMock}},
+        {
+          provide: CatalogManagementService,
+          useValue: {
+            activeCatalog: mockActiveCatalog,
+          },
+        },
       ],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(RawFrameComponent);
     fixture.detectChanges();
     const harness = await TestbedHarnessEnvironment.harnessForFixture(fixture, RawFrameHarness);
-    return {fixture, harness};
+    const component = fixture.componentInstance;
+    return {fixture, harness, component};
   }
 
   it('renders the raw JSON layout inside an Angular Material form field', async () => {
@@ -61,5 +84,146 @@ describe('RawFrameComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     expect(fixture.componentInstance.layoutJson()).toBe('{"updated": true}');
+  });
+
+  it('calls sendRenderA2UI immediately during component setup with the parsed CAR_BOOKING payload', async () => {
+    await setup(false);
+    expect(sendRenderA2UIMock).toHaveBeenCalledTimes(1);
+    expect(sendRenderA2UIMock).toHaveBeenCalledWith([
+      {
+        version: 'v0.9',
+        createSurface: {
+          surfaceId: 'sample-surface',
+          catalogId: 'https://a2ui.org/specification/v0_9/basic_catalog.json',
+        },
+      },
+      {
+        version: 'v0.9',
+        updateComponents: {
+          surfaceId: 'sample-surface',
+          components: [
+            {
+              id: 'root',
+              component: 'Column',
+              children: ['title', 'location_input', 'pickup_input', 'dropoff_input', 'book_button'],
+              justify: 'start',
+              align: 'stretch',
+            },
+            {id: 'title', component: 'Text', text: 'Book a Car', variant: 'h1'},
+            {
+              id: 'location_input',
+              component: 'TextField',
+              label: 'Pick-up Location',
+              value: {path: '/booking/location'},
+              variant: 'shortText',
+            },
+            {
+              id: 'pickup_input',
+              component: 'DateTimeInput',
+              label: 'Pick-up Date',
+              value: {path: '/booking/pickupDate'},
+              enableDate: true,
+              enableTime: false,
+            },
+            {
+              id: 'dropoff_input',
+              component: 'DateTimeInput',
+              label: 'Drop-off Date',
+              value: {path: '/booking/dropoffDate'},
+              enableDate: true,
+              enableTime: false,
+            },
+            {
+              id: 'book_button',
+              component: 'Button',
+              child: 'book_button_text',
+              variant: 'primary',
+              action: {
+                event: {
+                  name: 'searchCars',
+                  context: {
+                    location: {path: '/booking/location'},
+                    pickupDate: {path: '/booking/pickupDate'},
+                    dropoffDate: {path: '/booking/dropoffDate'},
+                  },
+                },
+              },
+            },
+            {
+              id: 'book_button_text',
+              component: 'Text',
+              text: 'Search Cars',
+              variant: 'body',
+            },
+          ],
+        },
+      },
+      {
+        version: 'v0.9',
+        updateDataModel: {
+          surfaceId: 'sample-surface',
+          path: '/booking',
+          value: {location: '', pickupDate: '', dropoffDate: ''},
+        },
+      },
+    ]);
+  });
+
+  it('triggers sendRenderA2UI after 300ms debouncing when valid JSON Lines is typed, and badge remains hidden', async () => {
+    const {fixture, harness} = await setup(false);
+    vi.useFakeTimers();
+    await harness.setJsonText(
+      '{"version": "v0.9", "createSurface": {"surfaceId": "s1", "catalogId": "c1"}}',
+    );
+    fixture.detectChanges();
+
+    // Before debounce passes
+    vi.advanceTimersByTime(150);
+    expect(sendRenderA2UIMock).toHaveBeenCalledTimes(1);
+
+    // After debounce passes
+    vi.advanceTimersByTime(150);
+    expect(sendRenderA2UIMock).toHaveBeenCalledTimes(2);
+    expect(sendRenderA2UIMock).toHaveBeenLastCalledWith([
+      {version: 'v0.9', createSurface: {surfaceId: 's1', catalogId: 'c1'}},
+    ]);
+    expect(fixture.componentInstance.isJsonInvalid()).toBe(false);
+    expect(await harness.hasInvalidJsonBadge()).toBe(false);
+  });
+
+  it('sets isJsonInvalid to true, suppresses sendRenderA2UI, and displays the invalid JSON badge when malformed JSON is typed', async () => {
+    const {fixture, harness} = await setup(false);
+    vi.useFakeTimers();
+    await harness.setJsonText('{"version": "v0.9", invalid_json...');
+    fixture.detectChanges();
+
+    vi.advanceTimersByTime(300);
+    fixture.detectChanges();
+
+    expect(sendRenderA2UIMock).toHaveBeenCalledTimes(1);
+    expect(fixture.componentInstance.isJsonInvalid()).toBe(true);
+    expect(await harness.hasInvalidJsonBadge()).toBe(true);
+  });
+
+  it('dispatches initial layout dynamically when activeCatalog transitions from null to a valid catalog', async () => {
+    mockActiveCatalog = signal(null);
+    const {fixture} = await setup(false);
+    expect(sendRenderA2UIMock).not.toHaveBeenCalled();
+
+    mockActiveCatalog.set({title: 'Sample Catalog'});
+    fixture.detectChanges();
+    expect(sendRenderA2UIMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches empty array when layout is an empty string on startup', async () => {
+    mockActiveCatalog = signal(null);
+    const {fixture, component} = await setup(false);
+    expect(sendRenderA2UIMock).not.toHaveBeenCalled();
+
+    component.layoutJson.set('   ');
+    mockActiveCatalog.set({title: 'Sample Catalog'});
+    fixture.detectChanges();
+
+    expect(sendRenderA2UIMock).toHaveBeenCalledWith([]);
   });
 });

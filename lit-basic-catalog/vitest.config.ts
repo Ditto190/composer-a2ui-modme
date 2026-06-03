@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-import {bootstrapApplication} from '@angular/platform-browser';
-import {provideZonelessChangeDetection} from '@angular/core';
-import {AppComponent} from './app/app.component';
+import {defineConfig} from 'vitest/config';
 
-bootstrapApplication(AppComponent, {
-  providers: [provideZonelessChangeDetection()],
-}).catch(err => console.error(err));
+export default defineConfig({
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.spec.ts'],
+  },
+});

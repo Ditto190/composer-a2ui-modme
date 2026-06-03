@@ -45,7 +45,7 @@ describe('HostCommunicationService', () => {
   });
 
   it('validates origin and emits envelope when source and origin match', () => {
-    const mockIframeWindow = {} as Window;
+    const mockIframeWindow = {postMessage: vi.fn()} as unknown as Window;
     service.registerIframe(mockIframeWindow);
 
     const event = new MessageEvent('message', {
@@ -64,7 +64,7 @@ describe('HostCommunicationService', () => {
   });
 
   it('assigns undefined payload when incoming message omits payload field', () => {
-    const mockIframeWindow = {} as Window;
+    const mockIframeWindow = {postMessage: vi.fn()} as unknown as Window;
     service.registerIframe(mockIframeWindow);
 
     const event = new MessageEvent('message', {
@@ -83,8 +83,8 @@ describe('HostCommunicationService', () => {
   });
 
   it('rejects message and does not emit envelope when source does not match registered iframe', () => {
-    const mockIframeWindow = {} as Window;
-    const unauthorizedWindow = {} as Window;
+    const mockIframeWindow = {postMessage: vi.fn()} as unknown as Window;
+    const unauthorizedWindow = {postMessage: vi.fn()} as unknown as Window;
     service.registerIframe(mockIframeWindow);
 
     const event = new MessageEvent('message', {
@@ -99,7 +99,7 @@ describe('HostCommunicationService', () => {
   });
 
   it('rejects message when origin does not match resolved renderer URL', () => {
-    const mockIframeWindow = {} as Window;
+    const mockIframeWindow = {postMessage: vi.fn()} as unknown as Window;
     service.registerIframe(mockIframeWindow);
 
     const event = new MessageEvent('message', {
@@ -113,35 +113,58 @@ describe('HostCommunicationService', () => {
     expect(service.latestEnvelope()).toBeNull();
   });
 
-  it('recognizes the FORCE_UNBLOCK contract and maps UNBLOCK_REQUEST to FORCE_UNBLOCK', () => {
-    const mockIframeWindow = {} as Window;
-    service.registerIframe(mockIframeWindow);
-
-    const event = new MessageEvent('message', {
-      source: mockIframeWindow,
-      origin: 'http://localhost:3000',
-      data: {type: 'UNBLOCK_REQUEST', payload: {reason: 'manual'}},
-    });
-
-    window.dispatchEvent(event);
-
-    expect(service.latestEnvelope()).toEqual({
-      type: 'FORCE_UNBLOCK',
-      payload: {reason: 'manual'},
-      origin: 'http://localhost:3000',
-    });
-  });
-
   it('sends message back to registered iframe using resolved target origin', () => {
     const mockIframeWindow = {
       postMessage: vi.fn(),
     } as unknown as Window;
     service.registerIframe(mockIframeWindow);
 
-    service.sendMessage({type: 'UPDATE_LAYOUT'});
+    service.sendMessage({type: 'GET_CATALOG'});
 
     expect(mockIframeWindow.postMessage).toHaveBeenCalledWith(
-      {type: 'UPDATE_LAYOUT'},
+      {type: 'GET_CATALOG'},
+      'http://localhost:3000',
+    );
+  });
+
+  it('blocks sendMessage when payload is malformed', () => {
+    const mockIframeWindow = {postMessage: vi.fn()} as unknown as Window;
+    service.registerIframe(mockIframeWindow);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    service.sendMessage({type: 'RENDER_A2UI', payload: {invalid: 'not an array'}});
+
+    expect(mockIframeWindow.postMessage).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith('Blocked dispatch of malformed message type...', {
+      type: 'RENDER_A2UI',
+      payload: {invalid: 'not an array'},
+    });
+
+    consoleSpy.mockRestore();
+  });
+
+  it('blocks sendRenderA2UI when array items lack version v0.9', () => {
+    const mockIframeWindow = {postMessage: vi.fn()} as unknown as Window;
+    service.registerIframe(mockIframeWindow);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    service.sendRenderA2UI([{updateDataModel: {surfaceId: 's-1'}}]);
+
+    expect(mockIframeWindow.postMessage).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalled();
+
+    consoleSpy.mockRestore();
+  });
+
+  it('successfully invokes postMessage when sendRenderA2UI is called with a valid payload', () => {
+    const mockIframeWindow = {postMessage: vi.fn()} as unknown as Window;
+    service.registerIframe(mockIframeWindow);
+
+    const validPayload = [{version: 'v0.9', updateDataModel: {surfaceId: 's-1'}}];
+    service.sendRenderA2UI(validPayload);
+
+    expect(mockIframeWindow.postMessage).toHaveBeenCalledWith(
+      {type: 'RENDER_A2UI', payload: validPayload},
       'http://localhost:3000',
     );
   });
