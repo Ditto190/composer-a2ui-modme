@@ -16,8 +16,8 @@
 
 import {Injectable, inject, signal, Signal, OnDestroy} from '@angular/core';
 import {StartupResolutionService} from './startup-resolution.service';
-import {Subject} from 'rxjs';
 import {CrossFrameValidator} from './cross-frame-validator';
+import {PreviewBridgeMessageType} from 'a2ui-bridge';
 
 /**
  * Schema representing a structured postMessage payload used to communicate
@@ -27,6 +27,7 @@ export interface MessageEnvelope {
   type: string;
   payload?: unknown;
   origin: string;
+  timestamp: number;
 }
 
 declare global {
@@ -50,7 +51,9 @@ export class HostCommunicationService implements OnDestroy {
 
   public readonly latestEnvelope: Signal<MessageEnvelope | null> =
     this.latestEnvelopeSignal.asReadonly();
-  public readonly messageStream$ = new Subject<MessageEnvelope>();
+
+  private readonly messageStreamSignal = signal<MessageEnvelope | null>(null);
+  public readonly messageStream = this.messageStreamSignal.asReadonly();
 
   private readonly messageListener = (event: MessageEvent) => {
     const activeWindow = this.iframeElement ? this.iframeElement.contentWindow : this.iframeWindow;
@@ -79,9 +82,10 @@ export class HostCommunicationService implements OnDestroy {
         type,
         payload: data.payload,
         origin: event.origin,
+        timestamp: Date.now(),
       };
       this.latestEnvelopeSignal.set(envelope);
-      this.messageStream$.next(envelope);
+      this.messageStreamSignal.set(envelope);
     }
   };
 
@@ -100,7 +104,7 @@ export class HostCommunicationService implements OnDestroy {
     this.iframeElement = element;
   }
 
-  public sendMessage(message: {type: string; payload?: unknown}): void {
+  public sendMessage(message: {type: PreviewBridgeMessageType; payload?: unknown}): void {
     if (!CrossFrameValidator.validateOutgoingMessage(message)) {
       console.error('Blocked dispatch of malformed message type...', message);
       return;
@@ -121,7 +125,7 @@ export class HostCommunicationService implements OnDestroy {
   }
 
   public sendRenderA2UI(payload: unknown[]): void {
-    this.sendMessage({type: 'RENDER_A2UI', payload});
+    this.sendMessage({type: PreviewBridgeMessageType.RENDER_A2UI, payload});
   }
 
   ngOnDestroy(): void {

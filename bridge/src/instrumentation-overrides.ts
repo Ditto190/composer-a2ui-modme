@@ -15,8 +15,27 @@
  */
 
 import {a2uiBridge} from './preview-bridge';
+import {PreviewBridgeMessageType} from './bridge-message';
 
-function deepCloneSafe(obj: unknown, ancestors = new Set<unknown>()): unknown {
+/**
+ * Safely and deeply clones a value or object, resolving potential serialization
+ * issues such as circular references, DOM nodes, functions, symbols, BigInts,
+ * and error objects to ensure it can be converted to JSON without throwing exceptions.
+ *
+ * - Circular references are replaced with `"[Circular Reference]"`.
+ * - Functions are replaced with `"[Function Callback]"`.
+ * - Symbols are converted to their string representations (e.g., `"Symbol(foo)"`).
+ * - BigInts are converted to their string representation postfixed with "n" (e.g., `"42n"`).
+ * - DOM Nodes are replaced with `"[DOM Node: <nodeName>]"`.
+ * - Window objects are replaced with `"[Window Scope]"`.
+ * - Errors are mapped to an object containing their `message` and `stack`.
+ * - Unserializable properties are caught and replaced with `"[Unserializable Property]"`.
+ *
+ * @param obj The value or object to safely clone.
+ * @param ancestors A set of ancestor object references used to track and prevent circular references during recursion.
+ * @returns A safe, deep-cloned representation of the input value.
+ */
+function deepCloneSafe(obj: unknown, ancestors: Set<unknown> = new Set<unknown>()): unknown {
   if (obj instanceof Error) {
     return {message: obj.message, stack: obj.stack};
   }
@@ -55,13 +74,22 @@ function deepCloneSafe(obj: unknown, ancestors = new Set<unknown>()): unknown {
   return obj;
 }
 
-function safeSerialize(args: unknown[]): unknown[] {
-  return args.map(arg => deepCloneSafe(arg));
-}
-
 /**
- * Injects hooks into global console functions and runtime error handlers
- * to intercept and marshal diagnostic telemetry logs back to the host.
+ * Injects telemetry hooks and overrides into global console functions and window-level
+ * error events within a browser environment.
+ *
+ * Specifically, this function:
+ * 1. Intercepts global logging methods (`console.log`, `console.warn`, `console.error`,
+ *    `console.info`, and `console.debug`), forwarding the logged content as a `CONSOLE_LOG`
+ *    telemetry message over the `a2uiBridge` after passing them to the original implementation.
+ * 2. Installs a custom `window.onerror` handler to capture and forward unhandled synchronous
+ *    runtime errors.
+ * 3. Installs a window-level listener for `'unhandledrejection'` events to capture and forward
+ *    unhandled asynchronous promise rejections.
+ *
+ * The overrides are safe and include recursion protection (preventing infinite loops
+ * during serialization failures or when logging from within the interceptor itself).
+ * If run outside a browser context (e.g. Server-Side Rendering), the function immediately returns.
  */
 export function setupInstrumentationOverrides(): void {
   if (typeof window === 'undefined') return;
@@ -77,63 +105,80 @@ export function setupInstrumentationOverrides(): void {
     'debug',
   ];
 
+  interface InstrumentedConsoleMethod {
+    (...args: unknown[]): void;
+    __a2uiOriginal?: (...args: unknown[]) => void;
+  }
+
   methods.forEach(method => {
-    const original = console[method];
-    console[method] = (...args: unknown[]) => {
+    const current = console[method] as InstrumentedConsoleMethod;
+    if (current && current.__a2uiOriginal) {
+      // Already instrumented, skip re-wrapping to prevent nested closures and leaks
+      return;
+    }
+    const original = current;
+    const wrapper = (...args: unknown[]) => {
       original.apply(console, args);
 
       if (isSerializing) return;
 
       try {
         isSerializing = true;
-        if (a2uiBridge && typeof a2uiBridge.sendMessage === 'function') {
-          const message = args
-            .map(arg => {
-              if (arg instanceof Error) return arg.message;
-              if (typeof arg === 'string') return arg;
-              const cloned = deepCloneSafe(arg);
-              return typeof cloned === 'string' ? cloned : JSON.stringify(cloned);
-            })
-            .join(' ');
+        const message = args
+          .map(arg => {
+            if (arg instanceof Error) return arg.message;
+            if (typeof arg === 'string') return arg;
+            const cloned = deepCloneSafe(arg);
+            return typeof cloned === 'string' ? cloned : JSON.stringify(cloned);
+          })
+          .join(' ');
 
-          const errorArg = args.find(arg => arg instanceof Error);
-          const stack = errorArg ? (errorArg as Error).stack : undefined;
+        const errorArg = args.find(arg => arg instanceof Error);
+        const stack = errorArg ? (errorArg as Error).stack : undefined;
 
-          a2uiBridge.sendMessage({
-            type: 'CONSOLE_LOG',
-            payload: {
-              level: method,
-              message,
-              stack,
-            },
-          });
-        }
+        a2uiBridge.sendMessage({
+          type: PreviewBridgeMessageType.CONSOLE_LOG,
+          payload: {
+            level: method,
+            message,
+            stack,
+          },
+        });
       } catch (err) {
         originalConsoleError.call(console, 'A2UI Bridge Telemetry Error (Console):', err);
       } finally {
         isSerializing = false;
       }
     };
+    (wrapper as InstrumentedConsoleMethod).__a2uiOriginal = original;
+    console[method] = wrapper;
   });
 
   const originalOnError = window.onerror;
-  window.onerror = (message, source, lineno, colno, error) => {
+
+  window.onerror = (
+    message: string | Event,
+    source: string | undefined,
+    lineno: number | undefined,
+    colno: number | undefined,
+    error: Error | undefined,
+  ): boolean => {
     try {
-      if (a2uiBridge && typeof a2uiBridge.sendMessage === 'function') {
-        a2uiBridge.sendMessage({
-          type: 'CONSOLE_LOG',
-          payload: {
-            level: 'error',
-            message: String(message),
-            stack: error ? error.stack : `${source || ''}:${lineno || 0}:${colno || 0}`,
-          },
-        });
-      }
+      a2uiBridge.sendMessage({
+        type: PreviewBridgeMessageType.CONSOLE_LOG,
+        payload: {
+          level: 'error',
+          message: String(message),
+          stack: error ? error.stack : `${source || ''}:${lineno || 0}:${colno || 0}`,
+        },
+      });
     } catch (err) {
       originalConsoleError.call(console, 'A2UI Bridge Telemetry Error (Window Error):', err);
     }
 
     if (originalOnError) {
+      // Delegates back to the original handler to ensure native browser error
+      // reporting or existing tooling continues to function
       return originalOnError(message, source, lineno, colno, error);
     }
     return false;
@@ -141,19 +186,22 @@ export function setupInstrumentationOverrides(): void {
 
   window.addEventListener('unhandledrejection', event => {
     try {
-      if (a2uiBridge && typeof a2uiBridge.sendMessage === 'function') {
-        const message = event.reason instanceof Error ? event.reason.message : String(event.reason);
-        const stack = event.reason instanceof Error ? event.reason.stack : undefined;
+      // Extracts the rejection reason from the event, determining whether it
+      // is a standard `Error` object (retaining its message and stack trace)
+      // or a generic type (coerced to a string).
+      // The details are sent to the host as an error-level `CONSOLE_LOG`
+      // telemetry message over the `a2uiBridge`.
+      const message = event.reason instanceof Error ? event.reason.message : String(event.reason);
+      const stack = event.reason instanceof Error ? event.reason.stack : undefined;
 
-        a2uiBridge.sendMessage({
-          type: 'CONSOLE_LOG',
-          payload: {
-            level: 'error',
-            message: `Unhandled Rejection: ${message}`,
-            stack,
-          },
-        });
-      }
+      a2uiBridge.sendMessage({
+        type: PreviewBridgeMessageType.CONSOLE_LOG,
+        payload: {
+          level: 'error',
+          message: `Unhandled Rejection: ${message}`,
+          stack,
+        },
+      });
     } catch (err) {
       originalConsoleError.call(console, 'A2UI Bridge Telemetry Error (Unhandled Rejection):', err);
     }

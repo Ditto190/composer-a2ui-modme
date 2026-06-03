@@ -37,19 +37,61 @@
         </div>
       </div>
     </div>
-    <div class="debug-section">
-      <mat-tab-group fitInkBarToContent>
+    <div class="debug-section" [class.collapsed]="isDebugCollapsed()">
+      <div class="debug-header-controls">
+        <button
+          mat-icon-button
+          (click)="clearAllLogs()"
+          aria-label="Clear Logs"
+          matTooltip="Clear all log tabs"
+          matTooltipPosition="left"
+        >
+          <mat-icon>delete</mat-icon>
+        </button>
+        <button
+          mat-icon-button
+          (click)="toggleDebugCollapse()"
+          aria-label="Toggle Debug Panel"
+          [matTooltip]="isDebugCollapsed() ? 'Expand Debug Panel' : 'Collapse Debug Panel'"
+          matTooltipPosition="left"
+        >
+          <mat-icon>{{
+            isDebugCollapsed() ? 'keyboard_arrow_up' : 'keyboard_arrow_down'
+          }}</mat-icon>
+        </button>
+      </div>
+      <mat-tab-group fitInkBarToContent [(selectedIndex)]="selectedTabIndex">
         <mat-tab label="Data Model">
           <div class="tab-content-container">
             <a2ui-composer-data-model></a2ui-composer-data-model>
           </div>
         </mat-tab>
-        <mat-tab label="Events">
+        <mat-tab>
+          <ng-template mat-tab-label>
+            <span
+              [matBadge]="unreadEventsCount()"
+              [matBadgeHidden]="unreadEventsCount() === 0"
+              matBadgeOverlap="false"
+              matBadgeColor="accent"
+              class="events-badge-host"
+              >Events</span
+            >
+          </ng-template>
           <div class="tab-content-container">
             <a2ui-composer-events></a2ui-composer-events>
           </div>
         </mat-tab>
-        <mat-tab label="Errors">
+        <mat-tab>
+          <ng-template mat-tab-label>
+            <span
+              [matBadge]="unreadErrorsCount()"
+              [matBadgeHidden]="unreadErrorsCount() === 0"
+              matBadgeOverlap="false"
+              matBadgeColor="warn"
+              class="errors-badge-host"
+              >Errors</span
+            >
+          </ng-template>
           <div class="tab-content-container">
             <a2ui-composer-errors></a2ui-composer-errors>
           </div>

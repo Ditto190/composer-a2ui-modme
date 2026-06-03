@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import {Component, inject, signal, OnInit} from '@angular/core';
+import {Component, inject, signal, viewChild, OnInit, effect, untracked} from '@angular/core';
 import {ChatPanelComponent} from '../chat/chat-panel/chat-panel.component';
 import {RawFrameComponent} from '../preview/raw/raw-frame.component';
 import {RenderedFrameComponent} from '../preview/rendered/rendered-frame.component';
@@ -24,7 +24,22 @@ import {ErrorsComponent} from '../debug/errors/errors.component';
 import {RawMessagesComponent} from '../debug/raw-messages/raw-messages.component';
 import {MockRulesComponent} from '../debug/mock-rules/mock-rules.component';
 import {MatTabsModule} from '@angular/material/tabs';
+import {MatIconModule} from '@angular/material/icon';
+import {MatButtonModule} from '@angular/material/button';
+import {MatTooltipModule} from '@angular/material/tooltip';
+import {MatBadgeModule} from '@angular/material/badge';
 import {StartupResolutionService} from './startup-resolution.service';
+import {HostCommunicationService} from './host-communication.service';
+import {PreviewBridgeMessageType} from 'a2ui-bridge';
+
+const EVENTS_TAB_INDEX = 1;
+const ERRORS_TAB_INDEX = 2;
+
+/** Internal interface mapping raw cross-frame workspace telemetry payloads */
+interface WorkspaceMessagePayload {
+  action?: unknown;
+  validationErrors?: unknown[] | Record<string, unknown> | string | boolean;
+}
 
 @Component({
   selector: 'a2ui-composer-workspace',
@@ -39,6 +54,10 @@ import {StartupResolutionService} from './startup-resolution.service';
     RawMessagesComponent,
     MockRulesComponent,
     MatTabsModule,
+    MatIconModule,
+    MatButtonModule,
+    MatTooltipModule,
+    MatBadgeModule,
   ],
   templateUrl: './composer-workspace.component.ng.html',
   styleUrl: './composer-workspace.component.scss',
@@ -49,9 +68,83 @@ import {StartupResolutionService} from './startup-resolution.service';
  */
 export class ComposerWorkspaceComponent implements OnInit {
   private startupResolutionService = inject(StartupResolutionService);
+  private hostComm = inject(HostCommunicationService);
+
   public isExtension = signal(false);
+  public isDebugCollapsed = signal(false);
+
+  public selectedTabIndex = signal(0);
+  public unreadEventsCount = signal(0);
+  public unreadErrorsCount = signal(0);
+
+  public readonly rawMessagesComponent = viewChild(RawMessagesComponent);
+  public readonly eventsComponent = viewChild(EventsComponent);
+  public readonly errorsComponent = viewChild(ErrorsComponent);
+
+  constructor() {
+    effect(() => {
+      const envelope = this.hostComm.messageStream();
+      if (!envelope) return;
+
+      const payload = envelope.payload as WorkspaceMessagePayload;
+
+      untracked(() => {
+        const activeTab = this.selectedTabIndex();
+        if (envelope.type === PreviewBridgeMessageType.SEND_TO_SERVER && payload?.action) {
+          if (activeTab !== EVENTS_TAB_INDEX) {
+            this.unreadEventsCount.update(count => count + 1);
+          }
+        } else if (envelope.type === PreviewBridgeMessageType.CONSOLE_LOG) {
+          if (activeTab !== ERRORS_TAB_INDEX) {
+            this.unreadErrorsCount.update(count => count + 1);
+          }
+        } else if (
+          envelope.type === PreviewBridgeMessageType.DATA_MODEL_CHANGE &&
+          payload?.validationErrors
+        ) {
+          const validationErrors = payload.validationErrors;
+          const hasErrors = Array.isArray(validationErrors)
+            ? validationErrors.length > 0
+            : typeof validationErrors === 'object' && validationErrors !== null
+              ? Object.keys(validationErrors).length > 0
+              : !!validationErrors;
+
+          if (hasErrors && activeTab !== ERRORS_TAB_INDEX) {
+            this.unreadErrorsCount.update(count => count + 1);
+          }
+        }
+      });
+    });
+
+    effect(() => {
+      const index = this.selectedTabIndex();
+      if (index === EVENTS_TAB_INDEX) {
+        untracked(() => {
+          this.unreadEventsCount.set(0);
+        });
+      } else if (index === ERRORS_TAB_INDEX) {
+        untracked(() => {
+          this.unreadErrorsCount.set(0);
+        });
+      }
+    });
+  }
 
   public ngOnInit(): void {
-    this.isExtension.set(this.startupResolutionService.isExtensionMode());
+    const isExt = this.startupResolutionService.isExtensionMode();
+    this.isExtension.set(isExt);
+    if (isExt) {
+      this.isDebugCollapsed.set(true);
+    }
+  }
+
+  public toggleDebugCollapse(): void {
+    this.isDebugCollapsed.update(c => !c);
+  }
+
+  public clearAllLogs(): void {
+    this.rawMessagesComponent()?.clearLogs();
+    this.eventsComponent()?.clearLogs();
+    this.errorsComponent()?.clearLogs();
   }
 }

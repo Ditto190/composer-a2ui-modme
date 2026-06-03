@@ -14,10 +14,13 @@
  * limitations under the License.
  */
 
-import {bootstrapApplication} from '@angular/platform-browser';
-import {provideZonelessChangeDetection} from '@angular/core';
-import {AppComponent} from './app/app.component';
+import {bootstrapLitSandbox} from 'a2ui-bridge/lit';
+import {basicCatalog} from '@a2ui/lit/v0_9';
+import {Catalog, ComponentApi} from '@a2ui/web_core/v0_9';
 
-bootstrapApplication(AppComponent, {
-  providers: [provideZonelessChangeDetection()],
-}).catch(err => console.error(err));
+// Export AppRoot class constructor value with a safe double cast to bypass duplicate-dependency nominal mismatches:
+export const AppRoot = bootstrapLitSandbox([basicCatalog as unknown as Catalog<ComponentApi>]);
+
+// Export AppRoot instance type under same name (type/value namespace merging)
+// to ensure 100% backward-compatibility with test suites without touching test code:
+export type AppRoot = InstanceType<typeof AppRoot>;
