@@ -63,6 +63,10 @@ export interface RendererConfig {
   onSurfaceReady: (surfaceId: string) => void;
   /** Invoked when the surface needs to unmount or reset. */
   onSurfaceCleared?: () => void;
+  /** A pre-loaded in-memory component/layout catalog payload definition. */
+  catalog?: unknown;
+  /** Preloaded registered catalog component lists shared natively. */
+  catalogs?: unknown[];
 }
 
 /** A subscription handle to detach a renderer and clean up connections. */

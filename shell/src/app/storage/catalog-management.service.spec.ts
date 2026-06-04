@@ -22,6 +22,7 @@ import {StartupResolutionService} from '../shell/startup-resolution.service';
 import {signal, WritableSignal} from '@angular/core';
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import {PreviewBridgeMessageType} from 'a2ui-bridge';
+import {Catalog} from './catalog-storage.model';
 
 describe('CatalogManagementService', () => {
   let service: CatalogManagementService;
@@ -61,9 +62,18 @@ describe('CatalogManagementService', () => {
     TestBed.configureTestingModule({
       providers: [
         CatalogManagementService,
-        {provide: HostCommunicationService, useValue: hostCommunicationServiceMock},
-        {provide: IndexedDbStorageService, useValue: indexedDbStorageServiceMock},
-        {provide: StartupResolutionService, useValue: startupResolutionServiceMock},
+        {
+          provide: HostCommunicationService,
+          useValue: hostCommunicationServiceMock,
+        },
+        {
+          provide: IndexedDbStorageService,
+          useValue: indexedDbStorageServiceMock,
+        },
+        {
+          provide: StartupResolutionService,
+          useValue: startupResolutionServiceMock,
+        },
       ],
     });
 
@@ -83,52 +93,60 @@ describe('CatalogManagementService', () => {
     expect(service.isHandshakeInProgress()).toBe(false);
     expect(service.catalogError()).toBeNull();
     expect(service.activeCatalog()).toBeNull();
+
     expect(service.catalogHashDelta()).toBe(false);
     expect(service.activeCatalogTitle()).toBe('');
     expect(service.activeCatalogDescription()).toBe('');
   });
 
-  it('sets handshake lock to true and sends GET_CATALOG when RENDERER_READY is received', () => {
-    hostCommunicationServiceMock.messageStream.set({
-      type: PreviewBridgeMessageType.RENDERER_READY,
-      origin: 'http://localhost',
-      timestamp: 1001,
-    });
-    TestBed.tick();
+  it(
+    'sets handshake lock to true and sends GET_CATALOG when RENDERER_READY ' + 'is received',
+    () => {
+      hostCommunicationServiceMock.messageStream.set({
+        type: PreviewBridgeMessageType.RENDERER_READY,
+        origin: 'http://localhost',
+        timestamp: 1001,
+      });
+      TestBed.tick();
 
-    expect(service.isHandshakeInProgress()).toBe(true);
-    expect(hostCommunicationServiceMock.sendMessage).toHaveBeenCalledWith({
-      type: PreviewBridgeMessageType.GET_CATALOG,
-    });
-  });
+      expect(service.isHandshakeInProgress()).toBe(true);
+      expect(hostCommunicationServiceMock.sendMessage).toHaveBeenCalledWith({
+        type: PreviewBridgeMessageType.GET_CATALOG,
+      });
+    },
+  );
 
-  it('logs a warning and ignores subsequent RENDERER_READY if handshake is already in progress', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it(
+    'logs a warning and ignores subsequent RENDERER_READY if handshake ' + 'is already in progress',
+    () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    hostCommunicationServiceMock.messageStream.set({
-      type: PreviewBridgeMessageType.RENDERER_READY,
-      origin: 'http://localhost',
-      timestamp: 1002,
-    });
-    TestBed.tick();
+      hostCommunicationServiceMock.messageStream.set({
+        type: PreviewBridgeMessageType.RENDERER_READY,
+        origin: 'http://localhost',
+        timestamp: 1002,
+      });
+      TestBed.tick();
 
-    expect(service.isHandshakeInProgress()).toBe(true);
-    expect(hostCommunicationServiceMock.sendMessage).toHaveBeenCalledTimes(1);
+      expect(service.isHandshakeInProgress()).toBe(true);
+      expect(hostCommunicationServiceMock.sendMessage).toHaveBeenCalledTimes(1);
 
-    // Trigger second RENDERER_READY
-    hostCommunicationServiceMock.messageStream.set({
-      type: PreviewBridgeMessageType.RENDERER_READY,
-      origin: 'http://localhost',
-      payload: 'retry',
-      timestamp: 1003,
-    });
-    TestBed.tick();
+      hostCommunicationServiceMock.messageStream.set({
+        type: PreviewBridgeMessageType.RENDERER_READY,
+        origin: 'http://localhost',
+        payload: 'retry',
+        timestamp: 1003,
+      });
+      TestBed.tick();
 
-    expect(warnSpy).toHaveBeenCalledWith('Handshake already in progress. Ignoring RENDERER_READY.');
-    expect(hostCommunicationServiceMock.sendMessage).toHaveBeenCalledTimes(1);
-  });
+      expect(warnSpy).toHaveBeenCalledWith(
+        'Handshake already in progress. Ignoring RENDERER_READY.',
+      );
+      expect(hostCommunicationServiceMock.sendMessage).toHaveBeenCalledTimes(1);
+    },
+  );
 
-  it('clears handshake lock when A2UI_CATALOG is received and hashing completes', async () => {
+  it('clears handshake lock when A2UI_CATALOG arrives and hashing completes', async () => {
     hostCommunicationServiceMock.messageStream.set({
       type: PreviewBridgeMessageType.RENDERER_READY,
       origin: 'http://localhost',
@@ -152,29 +170,34 @@ describe('CatalogManagementService', () => {
 
     expect(service.isHandshakeInProgress()).toBe(false);
     expect(service.catalogError()).toBeNull();
+    expect(service.activeCatalog()).toEqual({});
   });
 
-  it('resets handshake lock and logs error on 5-second watchdog timeout if A2UI_CATALOG is not received', () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it(
+    'resets handshake lock and logs error on 5-second watchdog timeout if ' +
+      'A2UI_CATALOG is not received',
+    () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    hostCommunicationServiceMock.messageStream.set({
-      type: PreviewBridgeMessageType.RENDERER_READY,
-      origin: 'http://localhost',
-      timestamp: 1006,
-    });
-    TestBed.tick();
-    expect(service.isHandshakeInProgress()).toBe(true);
+      hostCommunicationServiceMock.messageStream.set({
+        type: PreviewBridgeMessageType.RENDERER_READY,
+        origin: 'http://localhost',
+        timestamp: 1006,
+      });
+      TestBed.tick();
+      expect(service.isHandshakeInProgress()).toBe(true);
 
-    vi.advanceTimersByTime(5000);
-    expect(errorSpy).toHaveBeenCalledWith(
-      'Watchdog timeout: A2UI_CATALOG not received within 5 seconds.',
-    );
-    expect(service.watchdogFired()).toBe(true);
-    expect(service.catalogError()).toBe(
-      'Watchdog timeout: A2UI_CATALOG not received within 5 seconds.',
-    );
-    expect(service.isHandshakeInProgress()).toBe(false);
-  });
+      vi.advanceTimersByTime(5000);
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Watchdog timeout: A2UI_CATALOG not received within 5 seconds.',
+      );
+      expect(service.watchdogFired()).toBe(true);
+      expect(service.catalogError()).toBe(
+        'Watchdog timeout: A2UI_CATALOG not received within 5 seconds.',
+      );
+      expect(service.isHandshakeInProgress()).toBe(false);
+    },
+  );
 
   it('clears watchdog timer when A2UI_CATALOG arrives before timeout', async () => {
     hostCommunicationServiceMock.messageStream.set({
@@ -225,11 +248,46 @@ describe('CatalogManagementService', () => {
     );
   });
 
-  it('sanitizes malicious HTML tags in title and description and computes deterministic SHA-256 hash', async () => {
+  it(
+    'handles flat catalog error payloads returned by the preview bridge, ' +
+      'updating catalogError signal',
+    async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      hostCommunicationServiceMock.messageStream.set({
+        type: PreviewBridgeMessageType.RENDERER_READY,
+        origin: 'http://localhost',
+        timestamp: 3001,
+      });
+      TestBed.tick();
+
+      expect(service.isHandshakeInProgress()).toBe(true);
+
+      // Simulate bridge sending a flat error payload
+      hostCommunicationServiceMock.messageStream.set({
+        type: PreviewBridgeMessageType.A2UI_CATALOG,
+        origin: 'http://localhost',
+        payload: {
+          error: {message: 'Bridge in-memory catalog processing crash'},
+        },
+        timestamp: 3002,
+      });
+      TestBed.tick();
+
+      expect(service.catalogError()).toBe('Bridge in-memory catalog processing crash');
+      expect(service.isHandshakeInProgress()).toBe(false);
+      expect(errorSpy).toHaveBeenCalled();
+      errorSpy.mockRestore();
+    },
+  );
+
+  it('sanitizes HTML tags in title and description and computes SHA-256 hash', async () => {
     const payload = {
       title: 'Catalog Title <script>alert(1)</script>',
       description: 'Catalog Description <img src=x onerror=alert(1)>',
-      components: [{id: 'button', name: 'Button'}],
+      components: {
+        button: {name: 'Button'},
+      },
     };
 
     hostCommunicationServiceMock.messageStream.set({
@@ -251,13 +309,18 @@ describe('CatalogManagementService', () => {
     expect(service.lastCatalogString()).toContain('Catalog Description ');
     expect(service.lastCatalogString()).not.toContain('onerror');
 
+    expect(service.activeCatalogTitle()).toBe('Catalog Title ');
+    expect(service.activeCatalogDescription()).toBe('Catalog Description <img src="x">');
+
     const expectedHash = service.lastChecksumHash();
     expect(expectedHash).toBeTruthy();
     expect(expectedHash.length).toBe(64);
 
     // Verify deterministic hashing for identical catalog structures
     const payloadIdentical = {
-      components: [{id: 'button', name: 'Button'}],
+      components: {
+        button: {name: 'Button'},
+      },
       title: 'Catalog Title <script>alert(1)</script>',
       description: 'Catalog Description <img src=x onerror=alert(1)>',
     };
@@ -279,13 +342,13 @@ describe('CatalogManagementService', () => {
     expect(service.lastChecksumHash()).toBe(expectedHash);
   });
 
-  it('executes IndexedDB write transaction on hash delta when no cached record exists', async () => {
+  it('executes IndexedDB write transaction on delta when no cached record exists', async () => {
     indexedDbStorageServiceMock.getCatalogRecord.mockResolvedValue(null);
 
     const payload = {
       title: 'New Catalog',
       description: 'New Description',
-      components: [],
+      components: {},
     };
 
     hostCommunicationServiceMock.messageStream.set({
@@ -318,7 +381,7 @@ describe('CatalogManagementService', () => {
     expect(service.activeCatalogDescription()).toBe('New Description');
   });
 
-  it('executes IndexedDB write transaction on hash delta when cached record hash differs', async () => {
+  it('executes IndexedDB write transaction on delta when cached hash differs', async () => {
     indexedDbStorageServiceMock.getCatalogRecord.mockResolvedValue({
       rendererUrl: 'http://localhost/renderer',
       catalogString: '{}',
@@ -329,7 +392,7 @@ describe('CatalogManagementService', () => {
     const payload = {
       title: 'Updated Catalog',
       description: 'Updated Description',
-      components: [],
+      components: {},
     };
 
     hostCommunicationServiceMock.messageStream.set({
@@ -362,11 +425,11 @@ describe('CatalogManagementService', () => {
     expect(service.activeCatalogDescription()).toBe('Updated Description');
   });
 
-  it('updates lastAccessed but sets catalogHashDelta to false when cached record hash matches', async () => {
+  it('updates lastAccessed but delta is false when cached hash matches', async () => {
     const payload = {
       title: 'Matching Catalog',
       description: 'Matching Description',
-      components: [],
+      components: {},
     };
 
     hostCommunicationServiceMock.messageStream.set({
@@ -492,7 +555,7 @@ describe('CatalogManagementService', () => {
     errorSpy.mockRestore();
   });
 
-  it('completes handshake successfully without storing in IndexedDB if renderer URL is null', async () => {
+  it('handshakes without IndexedDB if renderer URL is null', async () => {
     startupResolutionServiceMock.getResolvedRendererUrl.mockReturnValue(null);
     indexedDbStorageServiceMock.getCatalogRecord.mockClear();
     indexedDbStorageServiceMock.saveCatalogRecord.mockClear();

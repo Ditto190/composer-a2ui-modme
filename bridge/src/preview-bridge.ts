@@ -152,6 +152,10 @@ export class PreviewBridge {
    * @returns A subscription handle to detach the renderer and clean up surface connections.
    */
   attachRenderer(processor: RendererProcessor, config: RendererConfig): SurfaceStateSubscription {
+    if (!config) {
+      console.error('PreviewBridge: config parameter is required in RendererConfig.');
+      return {unsubscribe: () => {}};
+    }
     if (!config.surfaceGroup) {
       console.error('PreviewBridge: surfaceGroup parameter is required in RendererConfig.');
       return {unsubscribe: () => {}};
@@ -442,6 +446,10 @@ export class PreviewBridge {
   private connectSurfaceGroup(surfaceGroup: SurfaceGroupLike): {unsubscribe(): void} {
     const subscriptions = new Map<string, {unsubscribe(): void}>();
 
+    if (!surfaceGroup || !surfaceGroup.onSurfaceCreated) {
+      return {unsubscribe: () => {}};
+    }
+
     const groupSubscription = surfaceGroup.onSurfaceCreated.subscribe(
       (surface: SurfaceInstance) => {
         if (!surface || typeof surface !== 'object' || !surface.id || !surface.dataModel) return;
@@ -468,7 +476,7 @@ export class PreviewBridge {
           if (modelSub) {
             subscriptions.set(surface.id, modelSub);
           }
-        } catch (err) {
+        } catch (err: unknown) {
           console.error(`Error subscribing to data model for surface ${surface.id}:`, err);
         }
       },
@@ -584,6 +592,36 @@ export class PreviewBridge {
    * JSON payload or error status back to the host container.
    */
   private async handleGetCatalog(): Promise<void> {
+    const inMemoryCatalog = this.activeRenderer?.config?.catalog;
+    if (inMemoryCatalog !== undefined) {
+      try {
+        let catalog = inMemoryCatalog;
+        if (typeof catalog === 'string') {
+          const safetyPrefix = ")]}'\n";
+          const jsonText = catalog.startsWith(safetyPrefix)
+            ? catalog.substring(safetyPrefix.length)
+            : catalog;
+          catalog = JSON.parse(jsonText);
+        }
+
+        this.alignRegisteredCatalogId(catalog);
+
+        this.sendMessage({
+          type: PreviewBridgeMessageType.A2UI_CATALOG,
+          payload: catalog,
+        });
+        return;
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('PreviewBridge: Error processing/parsing in-memory catalog:', error);
+        this.sendMessage({
+          type: PreviewBridgeMessageType.A2UI_CATALOG,
+          payload: {error: {message: errorMessage}},
+        });
+        return;
+      }
+    }
+
     if (typeof window === 'undefined' || !window.fetch) return;
     try {
       let res = await window.fetch('/catalog');
@@ -612,16 +650,43 @@ export class PreviewBridge {
         ? rawText.substring(safetyPrefix.length)
         : rawText;
       const catalog = JSON.parse(jsonText);
+
+      this.alignRegisteredCatalogId(catalog);
+
       this.sendMessage({
         type: PreviewBridgeMessageType.A2UI_CATALOG,
-        payload: {catalog},
+        payload: catalog,
       });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.sendMessage({
         type: PreviewBridgeMessageType.A2UI_CATALOG,
-        payload: {catalog: {}, error: {message: errorMessage}},
+        payload: {error: {message: errorMessage}},
       });
+    }
+  }
+
+  /**
+   * Overwrites the ID of registered catalog classes dynamically with the catalogId
+   * value returned by the custom catalog.
+   */
+  private alignRegisteredCatalogId(catalog: unknown): void {
+    if (!catalog || typeof catalog !== 'object') return;
+    const catalogObj = catalog as {catalogId?: string};
+    const catalogId = catalogObj.catalogId;
+    if (!catalogId) return;
+
+    const registeredCatalogs = this.activeRenderer?.config?.catalogs;
+    if (Array.isArray(registeredCatalogs) && registeredCatalogs.length > 0) {
+      for (const regCatalog of registeredCatalogs) {
+        if (regCatalog && typeof regCatalog === 'object') {
+          const regCatalogObj = regCatalog as {id: string};
+          console.log(
+            `PreviewBridge: Dynamically aligning registered catalog ID from "${regCatalogObj.id}" to "${catalogId}"`,
+          );
+          regCatalogObj.id = catalogId;
+        }
+      }
     }
   }
 }
