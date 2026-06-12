@@ -23,6 +23,10 @@ import {debounceTime, distinctUntilChanged, filter} from 'rxjs/operators';
 import {HostCommunication} from '../../shell/host-communication';
 import {PreviewBridgeMessageType} from 'a2ui-bridge';
 
+/**
+ * A debug drawer component presenting a reactive, nested JSON tree explorer
+ * of the active surface's underlying state data model.
+ */
 @Component({
   selector: 'a2ui-composer-data-model',
   standalone: true,
@@ -30,19 +34,15 @@ import {PreviewBridgeMessageType} from 'a2ui-bridge';
   templateUrl: './data-model.ng.html',
   styleUrl: './data-model.scss',
 })
-/**
- * A debug drawer component presenting a reactive, nested JSON tree explorer
- * of the active surface's underlying state data model.
- */
 export class DataModel {
   private readonly hostComm = inject(HostCommunication);
 
   private lastSurfaceId = 'sample-surface';
   private lastPath: string | undefined = undefined;
 
-  public readonly latestModelValue = signal<unknown>(null);
+  readonly latestModelValue = signal<unknown>(null);
 
-  public readonly dataModelJson = linkedSignal({
+  readonly dataModelJson = linkedSignal({
     source: this.latestModelValue,
     computation: (newModel: unknown): string => {
       if (newModel === null) return '';
@@ -50,7 +50,7 @@ export class DataModel {
     },
   });
 
-  public readonly isJsonInvalid = computed(() => {
+  readonly isJsonInvalid = computed(() => {
     const val = this.dataModelJson();
     if (!val) return false;
     try {

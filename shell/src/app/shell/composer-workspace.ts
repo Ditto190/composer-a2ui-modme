@@ -41,6 +41,10 @@ interface WorkspaceMessagePayload {
   validationErrors?: unknown[] | Record<string, unknown> | string | boolean;
 }
 
+/**
+ * The central workspace hub coordinating split-pane views between
+ * the layout editors, active preview frame, and debug consoles.
+ */
 @Component({
   selector: 'a2ui-composer-workspace',
   standalone: true,
@@ -62,24 +66,20 @@ interface WorkspaceMessagePayload {
   templateUrl: './composer-workspace.ng.html',
   styleUrl: './composer-workspace.scss',
 })
-/**
- * The central workspace hub coordinating split-pane views between
- * the layout editors, active preview frame, and debug consoles.
- */
 export class ComposerWorkspace implements OnInit {
   private startupResolution = inject(StartupResolution);
   private hostComm = inject(HostCommunication);
 
-  public isExtension = signal(false);
-  public isDebugCollapsed = signal(false);
+  isExtension = signal(false);
+  isDebugCollapsed = signal(false);
+  showMockRules = signal(false);
+  selectedTabIndex = signal(0);
+  unreadEventsCount = signal(0);
+  unreadErrorsCount = signal(0);
 
-  public selectedTabIndex = signal(0);
-  public unreadEventsCount = signal(0);
-  public unreadErrorsCount = signal(0);
-
-  public readonly rawMessages = viewChild(RawMessages);
-  public readonly events = viewChild(Events);
-  public readonly errors = viewChild(Errors);
+  readonly rawMessages = viewChild(RawMessages);
+  readonly events = viewChild(Events);
+  readonly errors = viewChild(Errors);
 
   constructor() {
     effect(() => {
@@ -130,7 +130,7 @@ export class ComposerWorkspace implements OnInit {
     });
   }
 
-  public ngOnInit(): void {
+  ngOnInit(): void {
     const isExt = this.startupResolution.isExtensionMode();
     this.isExtension.set(isExt);
     if (isExt) {
@@ -138,13 +138,11 @@ export class ComposerWorkspace implements OnInit {
     }
   }
 
-  public showMockRules = signal(false);
-
-  public toggleDebugCollapse(): void {
+  toggleDebugCollapse(): void {
     this.isDebugCollapsed.update(c => !c);
   }
 
-  public clearAllLogs(): void {
+  clearAllLogs(): void {
     this.rawMessages()?.clearLogs();
     this.events()?.clearLogs();
     this.errors()?.clearLogs();
