@@ -33,6 +33,7 @@ import {RouterLink} from '@angular/router';
 import {StartupResolution} from '../../shell/startup-resolution/startup-resolution';
 import {AppConfigProvider} from '../../settings/app-config-provider/app-config-provider';
 import {RenderA2uiItem} from 'a2ui-bridge';
+import {HostCommunication} from '../../shell/host-communication/host-communication';
 
 interface AttachedFile extends Attachment {
   readonly previewUrl?: string;
@@ -67,6 +68,13 @@ export class ChatPanel {
   private readonly catalogManagement = inject(CatalogManagement);
   private readonly startupResolution = inject(StartupResolution);
   private readonly configProvider = inject(AppConfigProvider);
+  private readonly hostCommunication = inject(HostCommunication);
+
+  protected readonly includeScreenshot = this.configProvider.includeScreenshot;
+
+  protected onIncludeScreenshotChange(checked: boolean): void {
+    this.configProvider.setIncludeScreenshot(checked);
+  }
 
   /**
    * Reactively computed dynamic system prompt instructions spec viewport
@@ -151,12 +159,39 @@ export class ChatPanel {
    */
   protected async submitPrompt(): Promise<void> {
     const textVal = this.userPrompt().trim();
-    const attachments = this.attachedFiles();
+    const attachments = [...this.attachedFiles()];
     if ((!textVal && attachments.length === 0) || this.isLocked()) {
       return;
     }
 
-    // Instantly clear prompt textarea draft and attachments
+    let screenshotSuccess = true;
+    if (this.includeScreenshot()) {
+      this.isReadingFiles.set(true);
+      try {
+        const screenshotDataUrl = await this.hostCommunication.captureScreenshot();
+        if (screenshotDataUrl) {
+          const commaIndex = screenshotDataUrl.indexOf(',');
+          const base64Data =
+            commaIndex !== -1 ? screenshotDataUrl.substring(commaIndex + 1) : screenshotDataUrl;
+          attachments.push({
+            name: 'screenshot.png',
+            mimeType: 'image/png',
+            data: base64Data,
+          });
+        }
+      } catch (err) {
+        console.error('ChatPanel: Failed to capture screenshot context:', err);
+        screenshotSuccess = false;
+      } finally {
+        this.isReadingFiles.set(false);
+      }
+    }
+
+    if (!screenshotSuccess) {
+      return;
+    }
+
+    // Clear prompt textarea draft and attachments only after successful capture
     this.userPrompt.set('');
     this.attachedFiles.set([]);
 

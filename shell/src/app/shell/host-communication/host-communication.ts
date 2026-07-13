@@ -274,6 +274,78 @@ export class HostCommunication implements OnDestroy {
     });
   }
 
+  /**
+   * Triggers a self-screenshot capture within the guest preview iframe.
+   * Dispatches a CAPTURE_SCREENSHOT message and returns a Promise resolving to
+   * the base64 PNG data URL string once the guest frame responds.
+   *
+   * @returns A promise resolving to the base64 PNG data URL.
+   */
+  async captureScreenshot(): Promise<string> {
+    if (!this.iframeElement) {
+      throw new Error('No active iframe element found to capture screenshot.');
+    }
+
+    if (!navigator?.mediaDevices?.getDisplayMedia) {
+      throw new Error('Screen capture API (getDisplayMedia) is not supported in this environment.');
+    }
+
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {displaySurface: 'browser'},
+        // @ts-expect-error - preferCurrentTab is a recent/experimental API not yet in TS types
+        preferCurrentTab: true,
+      });
+
+      const [track] = stream.getVideoTracks();
+      if (!track) {
+        throw new Error('No video track found in media stream.');
+      }
+
+      // @ts-expect-error - RestrictionTarget is a recent API not yet in TS types
+      if (typeof RestrictionTarget !== 'undefined') {
+        // @ts-expect-error - RestrictionTarget is not in standard TypeScript definitions yet
+        const target = await RestrictionTarget.fromElement(this.iframeElement);
+        // @ts-expect-error - restrictTo is not in standard MediaStreamTrack types yet
+        await track.restrictTo(target);
+      } else {
+        console.warn('RestrictionTarget API not supported, capturing full tab.');
+      }
+
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.muted = true;
+
+      await new Promise<void>(resolve => {
+        video.onloadedmetadata = () => {
+          video.play().catch(() => {});
+          resolve();
+        };
+      });
+
+      // Give the browser a tiny buffer to apply the restriction crop visually
+      await new Promise(resolve => setTimeout(resolve, 150));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0);
+      }
+
+      return canvas.toDataURL('image/png');
+    } catch (error) {
+      console.warn('Capture canceled or failed:', error);
+      throw error;
+    } finally {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    }
+  }
+
   ngOnDestroy(): void {
     this.earlyMessageBuffer.length = 0;
     if (typeof window !== 'undefined') {
