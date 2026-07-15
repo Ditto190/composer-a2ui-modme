@@ -174,9 +174,7 @@ export class RawFrame implements AfterViewInit, OnDestroy {
         if (this.layoutJson() !== activeDraftVal) {
           queueMicrotask(() => {
             this.layoutJson.set(activeDraftVal);
-            if (this.editor && this.editor.getValue() !== activeDraftVal) {
-              this.editor.setValue(activeDraftVal);
-            }
+            this.updateEditorContent(activeDraftVal);
 
             // Run live render updating matching activeDraft commits
             try {
@@ -290,6 +288,39 @@ export class RawFrame implements AfterViewInit, OnDestroy {
     this.layoutJson.set(value);
     this.layoutInput$.next(value);
     this.stateSync.updateDraft(value);
+  }
+
+  /**
+   * Updates the Monaco editor's content while preserving its undo/redo history stack.
+   * If a model exists on the editor, it executes an edit operation; otherwise it falls back to setValue.
+   *
+   * @param value The new text content to set in the editor.
+   */
+  private updateEditorContent(value: string): void {
+    if (!this.editor || this.editor.getValue() === value) {
+      return;
+    }
+    const model = this.editor.getModel();
+    if (model) {
+      const isLocked = this.isLocked();
+      if (isLocked) {
+        this.editor.updateOptions({readOnly: false});
+      }
+      this.editor.pushUndoStop();
+      this.editor.executeEdits('state-sync', [
+        {
+          range: model.getFullModelRange(),
+          text: value,
+          forceMoveMarkers: true,
+        },
+      ]);
+      this.editor.pushUndoStop();
+      if (isLocked) {
+        this.editor.updateOptions({readOnly: true});
+      }
+    } else {
+      this.editor.setValue(value);
+    }
   }
 
   /**
