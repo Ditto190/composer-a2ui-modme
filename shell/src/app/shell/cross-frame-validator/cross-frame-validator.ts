@@ -22,7 +22,9 @@ import {
   UpdateComponentsDetails,
   UpdateDataModelDetails,
   SetBlockingStatePayload,
+  SetThemePayload,
   DataModelChangePayload,
+  ThemePreference,
 } from 'a2ui-bridge';
 
 /**
@@ -107,6 +109,21 @@ export class CrossFrameValidator {
           );
           return false;
         }
+        return true;
+      }
+
+      case PreviewBridgeMessageType.SET_THEME: {
+        if (!msgPayload || typeof msgPayload !== 'object' || Array.isArray(msgPayload)) {
+          console.error('Malformed payload for SET_THEME: must be an object.');
+          return false;
+        }
+
+        const themePayload = msgPayload as SetThemePayload;
+        if (!Object.values(ThemePreference).includes(themePayload['theme'])) {
+          console.error(`Invalid theme preference mode: ${String(themePayload['theme'])}`);
+          return false;
+        }
+
         return true;
       }
 

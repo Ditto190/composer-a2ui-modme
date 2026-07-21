@@ -24,8 +24,10 @@ import {
   PreviewBridgeMessageType,
   BridgeMessage,
   SetBlockingStatePayload,
+  SetThemePayload,
   DataModelChangePayload,
   CreateSurfaceCommand,
+  ThemePreference,
 } from './bridge-message';
 export * from './bridge-message';
 
@@ -148,13 +150,46 @@ export class PreviewBridge {
   /** The registry of active framework surface connections currently linked and managed by the bridge. */
   private activeConnections = new Set<{unsubscribe(): void}>();
 
+  /** Tracks the currently applied theme in the DOM to avoid redundant DOM mutations. */
+  private currentAppliedTheme?: ThemePreference;
+
   /**
    * Initializes a new PreviewBridge instance.
-   * Sets up the global window message listener.
+   * Sets up the global window message listener and applies initial theme from URL if present.
    */
   constructor() {
     this.initMessageListener();
     setupInstrumentationOverrides(this);
+    this.initThemeFromUrl();
+  }
+
+  /**
+   * Applies light/dark mode theme styles and attributes to document.documentElement.
+   * Toggles the `.dark-theme` class, sets `color-scheme` CSS style, and `data-theme` attribute.
+   *
+   * @param theme The target theme ('light' or 'dark').
+   */
+  applyThemeToDom(theme: ThemePreference): void {
+    if (typeof document === 'undefined' || !document.documentElement) return;
+    if (this.currentAppliedTheme === theme) return;
+
+    this.currentAppliedTheme = theme;
+    if (theme === ThemePreference.DARK) {
+      document.documentElement.classList.add('dark-theme');
+    } else {
+      document.documentElement.classList.remove('dark-theme');
+    }
+    document.documentElement.style.colorScheme = theme;
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+
+  private initThemeFromUrl(): void {
+    if (typeof window === 'undefined' || !window.location || !window.location.search) return;
+    const params = new URLSearchParams(window.location.search);
+    const theme = params.get('theme');
+    if (theme && Object.values(ThemePreference).includes(theme as ThemePreference)) {
+      this.applyThemeToDom(theme as ThemePreference);
+    }
   }
 
   /**
@@ -190,6 +225,17 @@ export class PreviewBridge {
       config,
       activeSurfaceIds,
     };
+
+    if (this.currentAppliedTheme && config.onThemeChange) {
+      try {
+        config.onThemeChange(this.currentAppliedTheme);
+      } catch (error) {
+        console.error(
+          'PreviewBridge: Error inside onThemeChange callback during attachment:',
+          error,
+        );
+      }
+    }
 
     // Dispatches the dynamic startup handshake message to the host Shell context
     // ONLY after this modular framework application has completed its asynchronous
@@ -234,6 +280,7 @@ export class PreviewBridge {
     this.handleBlockingOverlay(false);
     this.isListening = false;
     this.activeRenderer = null;
+    this.currentAppliedTheme = undefined;
 
     // Clean up active connections
     const connections = Array.from(this.activeConnections);
@@ -322,10 +369,34 @@ export class PreviewBridge {
         void this.handleGetComponentUsages();
         break;
 
+      case PreviewBridgeMessageType.SET_THEME:
+        this.handleSetTheme(data['payload']);
+        break;
+
       default:
         console.warn(`PreviewBridge: Unrecognized incoming message type: ${data['type']}`);
     }
   };
+
+  /**
+   * Handles incoming theme change requests.
+   */
+  private handleSetTheme(payload: unknown): void {
+    const payloadObj = payload as SetThemePayload | undefined;
+    if (payloadObj && Object.values(ThemePreference).includes(payloadObj['theme'])) {
+      const theme = payloadObj['theme'];
+      this.applyThemeToDom(theme);
+      if (this.activeRenderer?.config.onThemeChange) {
+        try {
+          this.activeRenderer.config.onThemeChange(theme);
+        } catch (error) {
+          console.error('PreviewBridge: Error inside onThemeChange callback:', error);
+        }
+      }
+    } else {
+      console.warn('PreviewBridge: Malformed SET_THEME payload received:', payload);
+    }
+  }
 
   /**
    * Handles incoming blocking overlay requests.

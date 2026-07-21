@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import {ThemePreference} from './bridge-message';
 
 /**
  * A lightweight, framework-agnostic representation of an observable data model stream.
@@ -80,6 +81,8 @@ export interface RendererConfig {
   catalog?: unknown;
   /** Invoked when a dynamic catalog URN ID is resolved. */
   onCatalogResolved?: (catalogId: string) => void;
+  /** Invoked when the theme preference changes. */
+  onThemeChange?: (theme: ThemePreference) => void;
   /** Optional callback to retrieve component usage samples. */
   getComponentUsages?: () => Promise<ComponentUsages>;
 }

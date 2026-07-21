@@ -26,7 +26,12 @@ import {
   A2uiClientAction,
 } from '@a2ui/web_core/v0_9';
 import type {MarkdownRenderer} from '@a2ui/web_core/types/types';
-import {a2uiBridge, SurfaceStateSubscription, type ComponentUsages} from '../preview-bridge.js';
+import {
+  a2uiBridge,
+  SurfaceStateSubscription,
+  ThemePreference,
+  type ComponentUsages,
+} from '../preview-bridge.js';
 
 /**
  * Options block configuring custom element generation and static payload injection
@@ -41,6 +46,8 @@ export interface LitSandboxOptions {
   catalogJson?: unknown;
   /** Optional callback to retrieve component usage samples. */
   getComponentUsages?: () => Promise<ComponentUsages>;
+  /** Optional callback when theme changes. */
+  onThemeChange?: (theme: ThemePreference) => void;
 }
 
 /**
@@ -68,6 +75,8 @@ export class A2uiSandboxRoot extends LitElement {
   static markdownRenderer?: MarkdownRenderer = undefined;
   /** Optional callback to retrieve component usage samples shared statically */
   static getComponentUsages?: () => Promise<ComponentUsages> = undefined;
+  /** Optional callback when theme changes shared statically */
+  static onThemeChange?: (theme: ThemePreference) => void = undefined;
 
   // Core dynamic processing engine mapping actions outbox proxies
   private processor = new MessageProcessor(
@@ -120,6 +129,7 @@ export class A2uiSandboxRoot extends LitElement {
       surfaceGroup: this.processor.model,
       catalogJson: (this.constructor as typeof A2uiSandboxRoot).catalogJson,
       getComponentUsages: (this.constructor as typeof A2uiSandboxRoot).getComponentUsages,
+      onThemeChange: (this.constructor as typeof A2uiSandboxRoot).onThemeChange,
       onCatalogResolved: catalogId => {
         for (const catalog of (this.constructor as typeof A2uiSandboxRoot).catalogs) {
           if (catalog) {
@@ -182,6 +192,7 @@ export function bootstrapLitSandbox<T extends ComponentApi>(
     clazz.catalogJson = options?.catalogJson;
     clazz.markdownRenderer = options?.markdownRenderer;
     clazz.getComponentUsages = options?.getComponentUsages;
+    clazz.onThemeChange = options?.onThemeChange;
   };
 
   if (!customElements.get(elementTagName)) {
