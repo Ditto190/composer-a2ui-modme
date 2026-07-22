@@ -26,9 +26,9 @@ cd "$REPO_ROOT"
 
 echo "Running Prettier..."
 if [ "$CHECK_ONLY" = true ]; then
-  npx -y prettier --config .prettierrc --check .
+  corepack yarn prettier:check
 else
-  npx -y prettier --config .prettierrc --write .
+  corepack yarn prettier
 fi
 
 echo "Done."
