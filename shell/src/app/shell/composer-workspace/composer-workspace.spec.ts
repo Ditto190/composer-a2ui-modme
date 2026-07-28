@@ -23,7 +23,7 @@ import {provideNoopAnimations} from '@angular/platform-browser/animations';
 import {provideRouter} from '@angular/router';
 import {HostCommunication} from '../host-communication/host-communication';
 import {StartupResolution} from '../startup-resolution/startup-resolution';
-import {DockviewComponent} from 'dockview-core';
+import {DockviewComponent} from 'dockview';
 import {PreviewBridgeMessageType} from 'a2ui-bridge';
 import {ChatCoordinator} from '../../chat/chat-service/chat-coordinator';
 import {LlmClient, LlmMessage} from '../../chat/llm-client/llm-client';
@@ -414,6 +414,148 @@ describe('ComposerWorkspace Dashboard', () => {
       layoutSpy.mockRestore();
       widthSpy.mockRestore();
       heightSpy.mockRestore();
+    });
+
+    it('activates panel and triggers change detection when pointerdown occurs on tab element', () => {
+      const component = fixture.componentInstance;
+      const eventsPanel = component['dockviewApi']?.getGroupPanel(ComposerPanelId.Events);
+      expect(eventsPanel).toBeDefined();
+      if (!eventsPanel) return;
+
+      const tabEl = eventsPanel.view.tab.element;
+      tabEl.classList.add('dv-tab');
+      const rootEl = component.dockviewRoot().nativeElement;
+      if (!rootEl.contains(tabEl)) {
+        rootEl.appendChild(tabEl);
+      }
+
+      vi.spyOn(eventsPanel.api, 'isActive', 'get').mockReturnValue(false);
+      const setActiveSpy = vi.spyOn(eventsPanel.api, 'setActive');
+
+      tabEl.dispatchEvent(new Event('pointerdown', {bubbles: true, cancelable: true}));
+
+      expect(setActiveSpy).toHaveBeenCalled();
+    });
+
+    it('activates panel when click occurs on tab element', () => {
+      const component = fixture.componentInstance;
+      const eventsPanel = component['dockviewApi']?.getGroupPanel(ComposerPanelId.Events);
+      expect(eventsPanel).toBeDefined();
+      if (!eventsPanel) return;
+
+      const tabEl = eventsPanel.view.tab.element;
+      tabEl.classList.add('dv-tab');
+      const rootEl = component.dockviewRoot().nativeElement;
+      if (!rootEl.contains(tabEl)) {
+        rootEl.appendChild(tabEl);
+      }
+
+      vi.spyOn(eventsPanel.api, 'isActive', 'get').mockReturnValue(false);
+      const setActiveSpy = vi.spyOn(eventsPanel.api, 'setActive');
+
+      tabEl.dispatchEvent(new Event('click', {bubbles: true, cancelable: true}));
+
+      expect(setActiveSpy).toHaveBeenCalled();
+    });
+
+    it('activates panel when pointerdown occurs on a nested child element within a tab', () => {
+      const component = fixture.componentInstance;
+      const eventsPanel = component['dockviewApi']?.getGroupPanel(ComposerPanelId.Events);
+      expect(eventsPanel).toBeDefined();
+      if (!eventsPanel) return;
+
+      const tabEl = eventsPanel.view.tab.element;
+      tabEl.classList.add('dv-tab');
+      const childEl = document.createElement('span');
+      childEl.className = 'tab-title-text';
+      tabEl.appendChild(childEl);
+
+      const rootEl = component.dockviewRoot().nativeElement;
+      if (!rootEl.contains(tabEl)) {
+        rootEl.appendChild(tabEl);
+      }
+
+      vi.spyOn(eventsPanel.api, 'isActive', 'get').mockReturnValue(false);
+      const setActiveSpy = vi.spyOn(eventsPanel.api, 'setActive');
+
+      childEl.dispatchEvent(new Event('pointerdown', {bubbles: true, cancelable: true}));
+
+      expect(setActiveSpy).toHaveBeenCalled();
+    });
+
+    it('activates panel when click occurs on a nested child element within a tab', () => {
+      const component = fixture.componentInstance;
+      const eventsPanel = component['dockviewApi']?.getGroupPanel(ComposerPanelId.Events);
+      expect(eventsPanel).toBeDefined();
+      if (!eventsPanel) return;
+
+      const tabEl = eventsPanel.view.tab.element;
+      tabEl.classList.add('dv-tab');
+      const childEl = document.createElement('span');
+      childEl.className = 'tab-title-text';
+      tabEl.appendChild(childEl);
+
+      const rootEl = component.dockviewRoot().nativeElement;
+      if (!rootEl.contains(tabEl)) {
+        rootEl.appendChild(tabEl);
+      }
+
+      vi.spyOn(eventsPanel.api, 'isActive', 'get').mockReturnValue(false);
+      const setActiveSpy = vi.spyOn(eventsPanel.api, 'setActive');
+
+      childEl.dispatchEvent(new Event('click', {bubbles: true, cancelable: true}));
+
+      expect(setActiveSpy).toHaveBeenCalled();
+    });
+
+    it('does not activate panel when click occurs on non-tab workspace elements', () => {
+      const component = fixture.componentInstance;
+      const eventsPanel = component['dockviewApi']?.getGroupPanel(ComposerPanelId.Events);
+      expect(eventsPanel).toBeDefined();
+      if (!eventsPanel) return;
+
+      const nonTabEl = document.createElement('div');
+      nonTabEl.className = 'some-other-element';
+      const rootEl = component.dockviewRoot().nativeElement;
+      rootEl.appendChild(nonTabEl);
+
+      vi.spyOn(eventsPanel.api, 'isActive', 'get').mockReturnValue(false);
+      const setActiveSpy = vi.spyOn(eventsPanel.api, 'setActive');
+
+      nonTabEl.dispatchEvent(new Event('click', {bubbles: true, cancelable: true}));
+
+      expect(setActiveSpy).not.toHaveBeenCalled();
+    });
+
+    it('triggers change detection via cdr.markForCheck when active panel changes', () => {
+      const component = fixture.componentInstance;
+      const markForCheckSpy = vi.spyOn(component['cdr'], 'markForCheck');
+
+      const eventsPanel = component['dockviewApi']?.getGroupPanel(ComposerPanelId.Events);
+      expect(eventsPanel).toBeDefined();
+      if (!eventsPanel) return;
+
+      (
+        component['dockviewApi'] as unknown as {
+          _onDidActivePanelChange: {fire: (event: {panel: unknown}) => void};
+        }
+      )['_onDidActivePanelChange'].fire({panel: eventsPanel});
+
+      expect(markForCheckSpy).toHaveBeenCalled();
+    });
+
+    it('cleans up event listeners when component is destroyed', () => {
+      const rootEl = fixture.componentInstance.dockviewRoot().nativeElement;
+      const removeEventListenerSpy = vi.spyOn(rootEl, 'removeEventListener');
+
+      fixture.destroy();
+
+      expect(removeEventListenerSpy).toHaveBeenCalledWith(
+        'pointerdown',
+        expect.any(Function),
+        true,
+      );
+      expect(removeEventListenerSpy).toHaveBeenCalledWith('click', expect.any(Function), true);
     });
   });
 });
