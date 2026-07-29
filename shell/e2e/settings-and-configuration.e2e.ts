@@ -25,14 +25,11 @@ test.beforeEach(async ({page}) => {
 test.describe('Settings and Client Configuration', () => {
   test.describe('Custom Config Modification & Persistence', () => {
     test.beforeEach(async ({page}) => {
-      await page.goto('/settings');
-      await page.evaluate(() => {
-        try {
-          localStorage.clear();
-          localStorage.setItem('a2ui_composer_force_3p', 'true');
-        } catch (e) {}
+      await page.addInitScript(() => {
+        localStorage.clear();
+        localStorage.setItem('a2ui_composer_force_3p', 'true');
       });
-      await page.reload();
+      await page.goto('/settings');
     });
 
     test('persists configuration successfully, triggers explicit window reload, and unlocks guarded routes', async ({
@@ -57,7 +54,6 @@ test.describe('Settings and Client Configuration', () => {
       );
       expect(sentinel).toBeUndefined();
 
-      await page.goto('/');
       await expect(page.locator('.workspace-container')).toBeVisible();
     });
 
@@ -100,6 +96,30 @@ test.describe('Settings and Client Configuration', () => {
       expect(rendererVal).toBe('http://locked-renderer.com');
     });
 
+    test('fetches configuration when config.json request is intercepted by route handler', async ({
+      page,
+    }) => {
+      await page.route('**/config.json', async route => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            profiles: {
+              default: {
+                rendererUrl: 'http://intercepted-custom-config:3000',
+                allowOverrides: true,
+              },
+            },
+          }),
+        });
+      });
+
+      await page.goto('/settings');
+      const rendererInput = page.getByLabel('Target Renderer URL');
+      await expect(rendererInput).not.toBeDisabled();
+      const rendererVal = await rendererInput.inputValue();
+      expect(rendererVal).toBe('http://intercepted-custom-config:3000');
+    });
+
     test('verifies server apiKey in config.json decouples context locking, disables API key unmasking, and does not persist key on save', async ({
       page,
     }) => {
@@ -118,13 +138,10 @@ test.describe('Settings and Client Configuration', () => {
         });
       });
 
-      await page.goto('/settings');
-      await page.evaluate(() => {
-        try {
-          localStorage.setItem('a2ui_composer_force_3p', 'true');
-        } catch (e) {}
+      await page.addInitScript(() => {
+        localStorage.setItem('a2ui_composer_force_3p', 'true');
       });
-      await page.reload();
+      await page.goto('/settings');
 
       // Context is unlocked because allowOverrides is true
       await expect(page.getByLabel('Target Renderer URL')).toBeEnabled();
@@ -168,15 +185,11 @@ test.describe('Settings and Client Configuration', () => {
     test('verifies 1P vs 3P environment detection and disables chat panel on missing API keys', async ({
       page,
     }) => {
-      await page.goto('/?renderer=http://localhost:3000');
-      await page.evaluate(() => {
-        try {
-          localStorage.setItem('a2ui_composer_force_3p', 'true');
-          localStorage.removeItem('a2ui_composer_force_1p');
-        } catch (e) {}
+      await page.addInitScript(() => {
+        localStorage.setItem('a2ui_composer_force_3p', 'true');
+        localStorage.removeItem('a2ui_composer_force_1p');
       });
-      await page.reload();
-      await page.waitForURL(url => url.pathname === '/');
+      await page.goto('/?renderer=http://localhost:3000');
       await expect(page.locator('.disabled-chat-panel')).toBeVisible();
       await expect(page.locator('.disabled-notice-text')).toContainText(
         'This feature is only available with a valid Gemini API key.',
@@ -186,11 +199,8 @@ test.describe('Settings and Client Configuration', () => {
     test('verifies auth section is hidden when IS_1P_AUTH_ENABLED is false and API key provisioning panel visibility', async ({
       page,
     }) => {
-      await page.goto('/');
-      await page.evaluate(() => {
-        try {
-          localStorage.clear();
-        } catch (e) {}
+      await page.addInitScript(() => {
+        localStorage.clear();
       });
       await page.goto('/settings');
 

@@ -19,7 +19,7 @@ import {QueryParser} from '../query-parser/query-parser';
 import {LocalStorageKey} from '../../storage/models/local-storage-keys';
 import {LocalStorageInteractions} from '../../storage/local-storage-interactions/local-storage-interactions';
 import {AppConfigProvider} from '../../settings/app-config-provider/app-config-provider';
-import {IS_1P_AUTH_ENABLED} from '../environment-tokens/environment-tokens';
+import {CONFIG_URL, IS_1P_AUTH_ENABLED} from '../environment-tokens/environment-tokens';
 
 /**
  * Represents the configuration options for an application profile,
@@ -47,6 +47,7 @@ export class StartupResolution {
   private readonly localStorageInteractions = inject(LocalStorageInteractions);
   private readonly injector = inject(Injector);
   private readonly is1PAuthEnabled = inject(IS_1P_AUTH_ENABLED);
+  private readonly configUrl = inject(CONFIG_URL);
 
   readonly resolvedUrl = this._resolvedUrl.asReadonly();
   readonly isLockedContext = this._isLockedContext.asReadonly();
@@ -84,8 +85,8 @@ export class StartupResolution {
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
-      console.log('Fetching config.json configuration...');
-      const response = await fetch('config.json', {signal: controller.signal});
+      console.log(`Fetching ${this.configUrl} configuration...`);
+      const response = await fetch(this.configUrl, {signal: controller.signal});
       if (response.ok) {
         // Although we *expect* JSON, it's possible that the response includes
         // a JSON Vulnerability Protection prefixes (often referred to as an
@@ -98,10 +99,7 @@ export class StartupResolution {
         staticConfig = JSON.parse(cleanText);
       }
     } catch (err) {
-      console.warn(
-        'Watchdog timeout or failure fetching config.json. Allowing overrides fallbacks.',
-        err,
-      );
+      console.warn(`Watchdog timeout or failure fetching ${this.configUrl}`, err);
     } finally {
       clearTimeout(timeoutId);
     }
