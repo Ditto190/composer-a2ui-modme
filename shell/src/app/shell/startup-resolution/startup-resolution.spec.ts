@@ -27,6 +27,7 @@ class MockAppConfigProvider {
   geminiApiKey = signal<string>('');
   isApiKeyProvidedByConfig = signal<boolean>(false);
   purgeGeminiApiKey = vi.fn().mockResolvedValue(undefined);
+  setGeminiApiKey = vi.fn().mockResolvedValue(undefined);
   setApiKeyFromConfig = vi.fn().mockImplementation((key: string) => {
     this.isApiKeyProvidedByConfig.set(true);
     this.geminiApiKey.set(key);
@@ -66,8 +67,12 @@ describe('StartupResolution Task 2.6', () => {
 
   it('fetches static config and locks when overrides are prohibited', async () => {
     mockFetchConfig({
-      defaultRendererUrl: 'http://enterprise:3000',
-      allowOverrides: false,
+      profiles: {
+        default: {
+          rendererUrl: 'http://enterprise:3000',
+          allowOverrides: false,
+        },
+      },
     });
 
     const logSpy = vi.spyOn(console, 'log');
@@ -85,8 +90,12 @@ describe('StartupResolution Task 2.6', () => {
       new Response(
         ")]}'\n" +
           JSON.stringify({
-            defaultRendererUrl: 'http://lf:3000',
-            allowOverrides: true,
+            profiles: {
+              default: {
+                rendererUrl: 'http://lf:3000',
+                allowOverrides: true,
+              },
+            },
           }),
       ),
     );
@@ -99,8 +108,12 @@ describe('StartupResolution Task 2.6', () => {
       new Response(
         ")]}'\r\n" +
           JSON.stringify({
-            defaultRendererUrl: 'http://crlf:3000',
-            allowOverrides: true,
+            profiles: {
+              default: {
+                rendererUrl: 'http://crlf:3000',
+                allowOverrides: true,
+              },
+            },
           }),
       ),
     );
@@ -110,8 +123,12 @@ describe('StartupResolution Task 2.6', () => {
 
   it('evaluates query params prior to storage when overrides exist', async () => {
     mockFetchConfig({
-      defaultRendererUrl: 'http://base:3000',
-      allowOverrides: true,
+      profiles: {
+        default: {
+          rendererUrl: 'http://base:3000',
+          allowOverrides: true,
+        },
+      },
     });
 
     vi.spyOn(service, 'getWindowSearch').mockReturnValue('?renderer=http://query:3000');
@@ -162,8 +179,12 @@ describe('StartupResolution Task 2.6', () => {
 
   it('evaluates environment validity correctly via isEnvironmentValid', async () => {
     mockFetchConfig({
-      defaultRendererUrl: 'http://base:3000',
-      allowOverrides: true,
+      profiles: {
+        default: {
+          rendererUrl: 'http://base:3000',
+          allowOverrides: true,
+        },
+      },
     });
 
     vi.spyOn(service, 'getWindowHostname').mockReturnValue('localhost');
@@ -179,8 +200,12 @@ describe('StartupResolution Task 2.6', () => {
 
   it('purges Gemini API key via AppConfigProvider when operating in 1P environments', async () => {
     mockFetchConfig({
-      defaultRendererUrl: 'http://base:3000',
-      allowOverrides: true,
+      profiles: {
+        default: {
+          rendererUrl: 'http://base:3000',
+          allowOverrides: true,
+        },
+      },
     });
 
     vi.spyOn(service, 'getWindowHostname').mockReturnValue('google.com');
@@ -188,6 +213,29 @@ describe('StartupResolution Task 2.6', () => {
     await service.resolveStartupConfiguration();
 
     expect(mockConfigProvider.purgeGeminiApiKey).toHaveBeenCalled();
+  });
+
+  it('logs warning when evaluateEnvironmentPurge fails to purge Gemini API key', async () => {
+    mockFetchConfig({
+      profiles: {
+        default: {
+          rendererUrl: 'http://base:3000',
+          allowOverrides: true,
+        },
+      },
+    });
+
+    vi.spyOn(service, 'getWindowHostname').mockReturnValue('google.com');
+    const warnSpy = vi.spyOn(console, 'warn');
+    const purgeErr = new Error('Purge failed');
+    mockConfigProvider.purgeGeminiApiKey.mockRejectedValueOnce(purgeErr);
+
+    await service.resolveStartupConfiguration();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Failed to purge Gemini API key in 1P environment:',
+      purgeErr,
+    );
   });
 
   it('correctly evaluates isExtensionMode based on query param and storage', () => {
@@ -217,21 +265,26 @@ describe('StartupResolution Task 2.6', () => {
     expect(url).toBe('http://query:3000/');
   });
 
-  it('skips query and storage evaluations when context is already locked from prior run', async () => {
+  it('resets state signals on consecutive resolveStartupConfiguration calls', async () => {
     mockFetchConfig({
-      defaultRendererUrl: 'http://enterprise:3000',
-      allowOverrides: false,
+      profiles: {
+        default: {
+          rendererUrl: 'http://enterprise:3000',
+          allowOverrides: false,
+        },
+      },
     });
     await service.resolveStartupConfiguration(); // locks context
+    expect(service.isContextLocked()).toBe(true);
 
-    // Second run, config fetch fails, but context is locked
+    // Second run, config fetch fails, signals were reset so context is unlocked and falls back to query/storage
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));
     vi.spyOn(service, 'getWindowSearch').mockReturnValue('?renderer=http://query:3000');
     localStorage.setItem(LocalStorageKey.RENDERER_URL, 'http://storage:3000');
     const url = await service.resolveStartupConfiguration();
 
-    // Stays with enterprise URL
-    expect(url).toBe('http://enterprise:3000');
+    expect(service.isContextLocked()).toBe(false);
+    expect(url).toBe('http://query:3000/');
   });
 
   it('returns window search and hostname safely', () => {
@@ -280,9 +333,13 @@ describe('StartupResolution Task 2.6', () => {
   describe('server api key in config.json', () => {
     it('sets in-memory API key in AppConfigProvider when config.json provides apiKey property', async () => {
       mockFetchConfig({
-        defaultRendererUrl: 'http://base:3000',
-        allowOverrides: true,
-        apiKey: 'AIzaSyCamelKey',
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+            apiKey: 'AIzaSyCamelKey',
+          },
+        },
       });
 
       const url = await service.resolveStartupConfiguration();
@@ -294,9 +351,13 @@ describe('StartupResolution Task 2.6', () => {
 
     it('ignores empty or whitespace apiKey property in config.json', async () => {
       mockFetchConfig({
-        defaultRendererUrl: 'http://base:3000',
-        allowOverrides: true,
-        apiKey: '   ',
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+            apiKey: '   ',
+          },
+        },
       });
 
       await service.resolveStartupConfiguration();
@@ -306,9 +367,13 @@ describe('StartupResolution Task 2.6', () => {
 
     it('locks context strictly when allowOverrides is false regardless of apiKey presence', async () => {
       mockFetchConfig({
-        defaultRendererUrl: 'http://base:3000',
-        allowOverrides: false,
-        apiKey: 'AIzaSyCamelKey',
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: false,
+            apiKey: 'AIzaSyCamelKey',
+          },
+        },
       });
 
       await service.resolveStartupConfiguration();
@@ -319,9 +384,13 @@ describe('StartupResolution Task 2.6', () => {
 
     it('trims whitespace immediately when config.json provides apiKey with surrounding spaces', async () => {
       mockFetchConfig({
-        defaultRendererUrl: 'http://base:3000',
-        allowOverrides: true,
-        apiKey: '   AIzaSyTrimmedKey   ',
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+            apiKey: '   AIzaSyTrimmedKey   ',
+          },
+        },
       });
 
       await service.resolveStartupConfiguration();
@@ -336,5 +405,342 @@ describe('StartupResolution Task 2.6', () => {
 
     service.setResolvedRendererUrl(null);
     expect(service.getResolvedRendererUrl()).toBeNull();
+  });
+
+  describe('profile resolution', () => {
+    it('loads default profile when no profile query parameter is provided', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://default-renderer:3000',
+            allowOverrides: true,
+          },
+        },
+      });
+
+      const url = await service.resolveStartupConfiguration();
+      expect(url).toBe('http://default-renderer:3000');
+    });
+
+    it('loads named profile directly when valid profile param is supplied', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+          },
+          ge: {
+            rendererUrl: 'http://testing-renderer:3000',
+          },
+        },
+      });
+
+      vi.spyOn(service, 'getWindowSearch').mockReturnValue('?profile=ge');
+
+      const url = await service.resolveStartupConfiguration();
+      expect(url).toBe('http://testing-renderer:3000');
+    });
+
+    it('uses named profile directly without merging default profile properties', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://default-renderer:3000',
+            apiKey: 'default-key',
+            allowOverrides: false,
+          },
+          dev: {
+            rendererUrl: 'http://dev-renderer:3000',
+          },
+        },
+      });
+
+      vi.spyOn(service, 'getWindowSearch').mockReturnValue('?profile=dev');
+
+      const url = await service.resolveStartupConfiguration();
+      expect(url).toBe('http://dev-renderer:3000');
+      expect(mockConfigProvider.setApiKeyFromConfig).not.toHaveBeenCalled();
+      expect(service.isContextLocked()).toBe(false);
+    });
+
+    it('logs warning and falls back to default profile when invalid profile parameter is provided', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://default-renderer:3000',
+            allowOverrides: true,
+          },
+          ge: {
+            rendererUrl: 'http://testing-renderer:3000',
+          },
+        },
+      });
+
+      const warnSpy = vi.spyOn(console, 'warn');
+      vi.spyOn(service, 'getWindowSearch').mockReturnValue('?profile=invalid');
+
+      const url = await service.resolveStartupConfiguration();
+      expect(url).toBe('http://default-renderer:3000');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Requested profile 'invalid' not found in static configuration."),
+      );
+    });
+
+    it('handles missing profiles key or missing default profile gracefully', async () => {
+      mockFetchConfig({});
+      let url = await service.resolveStartupConfiguration();
+      expect(url).toBeNull();
+
+      mockFetchConfig({profiles: {}});
+      url = await service.resolveStartupConfiguration();
+      expect(url).toBeNull();
+    });
+
+    it('locks context immediately when active profile sets allowOverrides to false', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+          },
+          locked: {
+            rendererUrl: 'http://locked-renderer:3000',
+            allowOverrides: false,
+          },
+        },
+      });
+
+      vi.spyOn(service, 'getWindowSearch').mockReturnValue(
+        '?profile=locked&renderer=http://override:3000',
+      );
+      localStorage.setItem(LocalStorageKey.RENDERER_URL, 'http://storage:3000');
+
+      const url = await service.resolveStartupConfiguration();
+      expect(url).toBe('http://locked-renderer:3000');
+      expect(service.isContextLocked()).toBe(true);
+    });
+
+    it('allows renderer query override over profile defaults when allowOverrides is true', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+          },
+          ge: {
+            rendererUrl: 'http://testing-renderer:3000',
+          },
+        },
+      });
+
+      vi.spyOn(service, 'getWindowSearch').mockReturnValue(
+        '?profile=ge&renderer=http://custom-renderer:3000',
+      );
+
+      const url = await service.resolveStartupConfiguration();
+      expect(url).toBe('http://custom-renderer:3000/');
+    });
+
+    it('handles prototype property names in profile parameter safely', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+          },
+          ge: {
+            rendererUrl: 'http://testing-renderer:3000',
+          },
+        },
+      });
+
+      const warnSpy = vi.spyOn(console, 'warn');
+      vi.spyOn(service, 'getWindowSearch').mockReturnValue('?profile=constructor');
+
+      const url = await service.resolveStartupConfiguration();
+      expect(url).toBe('http://base:3000');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Requested profile 'constructor' not found in static configuration.",
+        ),
+      );
+    });
+
+    it('handles null profile entries in config.json gracefully', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: null as unknown as object,
+          dev: null as unknown as object,
+        },
+      });
+
+      vi.spyOn(service, 'getWindowSearch').mockReturnValue('?profile=dev');
+
+      const url = await service.resolveStartupConfiguration();
+      expect(url).toBeNull();
+      expect(service.isContextLocked()).toBe(false);
+    });
+
+    it('bypasses lock and logs warning when static profile sets allowOverrides: false but specifies no rendererUrl', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            allowOverrides: false,
+          },
+        },
+      });
+
+      const warnSpy = vi.spyOn(console, 'warn');
+      const url = await service.resolveStartupConfiguration();
+
+      expect(url).toBeNull();
+      expect(service.isContextLocked()).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        'Static profile sets allowOverrides: false but specifies no rendererUrl. Bypassing lock.',
+      );
+    });
+
+    it('handles array payloads for profiles or individual profile entries safely', async () => {
+      // 1. Array payload for profiles
+      mockFetchConfig({
+        profiles: [{rendererUrl: 'http://array-profile:3000'}] as unknown as object,
+      });
+
+      let url = await service.resolveStartupConfiguration();
+      expect(url).toBeNull();
+
+      // 2. Array payload for default profile entry
+      mockFetchConfig({
+        profiles: {
+          default: [{rendererUrl: 'http://array-default:3000'}] as unknown as object,
+        },
+      });
+
+      url = await service.resolveStartupConfiguration();
+      expect(url).toBeNull();
+
+      // 3. Array payload for requested named profile entry
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://default-renderer:3000',
+            allowOverrides: true,
+          },
+          dev: [{rendererUrl: 'http://array-dev:3000'}] as unknown as object,
+        },
+      });
+
+      vi.spyOn(service, 'getWindowSearch').mockReturnValue('?profile=dev');
+
+      url = await service.resolveStartupConfiguration();
+      expect(url).toBe('http://default-renderer:3000');
+    });
+  });
+
+  describe('apiKey resolution', () => {
+    it('extracts and sets trimmed API key from static config', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+            apiKey: '  test-api-key  ',
+          },
+        },
+      });
+
+      await service.resolveStartupConfiguration();
+      expect(mockConfigProvider.setApiKeyFromConfig).toHaveBeenCalledWith('test-api-key');
+      expect(mockConfigProvider.setGeminiApiKey).not.toHaveBeenCalled();
+    });
+
+    it('uses named profile API key when profile is active', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+            apiKey: 'root-key',
+          },
+          dev: {
+            apiKey: 'profile-key',
+          },
+        },
+      });
+
+      vi.spyOn(service, 'getWindowSearch').mockReturnValue('?profile=dev');
+
+      await service.resolveStartupConfiguration();
+      expect(mockConfigProvider.setApiKeyFromConfig).toHaveBeenCalledWith('profile-key');
+      expect(mockConfigProvider.setGeminiApiKey).not.toHaveBeenCalled();
+    });
+
+    it('does not use default profile API key when requested profile does not specify an API key', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+            apiKey: 'root-key',
+          },
+          dev: {
+            rendererUrl: 'http://dev:3000',
+          },
+        },
+      });
+
+      vi.spyOn(service, 'getWindowSearch').mockReturnValue('?profile=dev');
+
+      await service.resolveStartupConfiguration();
+      expect(mockConfigProvider.setApiKeyFromConfig).not.toHaveBeenCalled();
+      expect(mockConfigProvider.setGeminiApiKey).not.toHaveBeenCalled();
+    });
+
+    it('does not call setApiKeyFromConfig or setGeminiApiKey when API key is empty or whitespace-only', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+            apiKey: '   ',
+          },
+        },
+      });
+
+      await service.resolveStartupConfiguration();
+      expect(mockConfigProvider.setApiKeyFromConfig).not.toHaveBeenCalled();
+      expect(mockConfigProvider.setGeminiApiKey).not.toHaveBeenCalled();
+    });
+
+    it('does not call setApiKeyFromConfig or setGeminiApiKey when API key is missing from config', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+          },
+        },
+      });
+
+      await service.resolveStartupConfiguration();
+      expect(mockConfigProvider.setApiKeyFromConfig).not.toHaveBeenCalled();
+      expect(mockConfigProvider.setGeminiApiKey).not.toHaveBeenCalled();
+    });
+
+    it('handles non-string apiKey values safely without setting API key', async () => {
+      mockFetchConfig({
+        profiles: {
+          default: {
+            rendererUrl: 'http://base:3000',
+            allowOverrides: true,
+            apiKey: 12345 as unknown as string,
+          },
+        },
+      });
+
+      await service.resolveStartupConfiguration();
+      expect(mockConfigProvider.setApiKeyFromConfig).not.toHaveBeenCalled();
+      expect(mockConfigProvider.setGeminiApiKey).not.toHaveBeenCalled();
+    });
   });
 });

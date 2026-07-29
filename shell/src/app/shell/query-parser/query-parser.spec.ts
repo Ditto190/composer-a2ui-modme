@@ -80,4 +80,89 @@ describe('QueryParser', () => {
       expect.stringContaining('Malformed renderer parameter string encountered'),
     );
   });
+
+  describe('parseProfileName', () => {
+    it('parses profile name from ?profile query parameter', () => {
+      expect(QueryParser.parseProfileName('?profile=ge')).toBe('ge');
+    });
+
+    it('parses profile name from ?config query parameter as fallback', () => {
+      expect(QueryParser.parseProfileName('?config=dev')).toBe('dev');
+    });
+
+    it('prefers ?profile parameter over ?config parameter when both exist', () => {
+      expect(QueryParser.parseProfileName('?profile=ge&config=dev')).toBe('ge');
+    });
+
+    it('rejects profile names with invalid characters', () => {
+      expect(QueryParser.parseProfileName('?profile=testing/invalid')).toBeNull();
+      expect(QueryParser.parseProfileName('?profile=testing<script>')).toBeNull();
+    });
+
+    it('rejects profile name parsing when prohibited credential keys are present in query string', () => {
+      const warnSpy = vi.spyOn(console, 'warn');
+      expect(QueryParser.parseProfileName('?profile=testing&apiKey=secret')).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Security Violation: Prohibited credentials'),
+      );
+    });
+
+    it('rejects unseparated prohibited credential keys like apikey or authtoken', () => {
+      const warnSpy = vi.spyOn(console, 'warn');
+      expect(QueryParser.parseProfileName('?profile=testing&apikey=secret')).toBeNull();
+      expect(QueryParser.parseRendererUrl('?renderer=http://host:3000&authtoken=123')).toBeNull();
+      expect(QueryParser.parseRendererUrl('?renderer=http://host:3000&appsecret=abc')).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Security Violation: Prohibited credentials'),
+      );
+    });
+  });
+
+  describe('isProhibitedKey', () => {
+    it('detects prohibited credential keys including uppercase, ALL-CAPS, standard, and trailing digit keys', () => {
+      const prohibitedKeys = [
+        'APIKEY',
+        'API_KEY',
+        'AUTH_TOKEN',
+        'APPSECRET',
+        'KEY',
+        'SECRET',
+        'key1',
+        'token2',
+        'apiKey',
+        'api_key',
+        'apikey',
+      ];
+      for (const key of prohibitedKeys) {
+        expect(QueryParser['isProhibitedKey'](key)).toBe(true);
+      }
+    });
+
+    it('allows benign keys ending with false-positive suffixes', () => {
+      const benignKeys = [
+        'hockey',
+        'turkey',
+        'monkey',
+        'donkey',
+        'whiskey',
+        'lackey',
+        'jockey',
+        'hockey1',
+        'turkey2',
+        'HOCKEY',
+      ];
+      for (const key of benignKeys) {
+        expect(QueryParser['isProhibitedKey'](key)).toBe(false);
+      }
+    });
+
+    it('detects prohibited keys like hockeyKey', () => {
+      expect(QueryParser['isProhibitedKey']('hockeyKey')).toBe(true);
+    });
+
+    it('allows URL parsing when benign query parameters are present', () => {
+      const url = QueryParser.parseRendererUrl('?renderer=http://localhost:3000&hockey=puck');
+      expect(url).toBe('http://localhost:3000/');
+    });
+  });
 });

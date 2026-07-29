@@ -21,8 +21,21 @@
 export class QueryParser {
   /** @nocollapse */
   private static isProhibitedKey(key: string): boolean {
-    const words = key.split(/(?=[A-Z])|[_.-]/).map(w => w.toLowerCase());
-    return words.some(w => w === 'key' || w === 'token' || w === 'secret');
+    const words = key
+      .split(/(?<=[a-z0-9])(?=[A-Z])|[^a-zA-Z0-9]+/)
+      .map(w => w.toLowerCase())
+      .filter(Boolean);
+    const exclusions = ['monkey', 'donkey', 'hockey', 'turkey', 'whiskey', 'lackey', 'jockey'];
+
+    return words.some(word => {
+      const isProhibited =
+        /key\d*$/.test(word) || /token\d*$/.test(word) || /secret\d*$/.test(word);
+      if (isProhibited) {
+        const wordBase = word.replace(/\d+$/, '');
+        return !exclusions.some(exc => wordBase.endsWith(exc));
+      }
+      return false;
+    });
   }
 
   /** @nocollapse */
@@ -67,6 +80,31 @@ export class QueryParser {
           `Malformed renderer parameter string encountered: '${uriCandidate}'. Stripping invalid URI.`,
         );
       }
+    }
+
+    return null;
+  }
+
+  /** @nocollapse */
+  static parseProfileName(searchString: string): string | null {
+    const params = new URLSearchParams(searchString);
+
+    for (const key of params.keys()) {
+      if (QueryParser.isProhibitedKey(key)) {
+        console.warn(
+          'Security Violation: Prohibited credentials detected in root query string. Stripping parameters.',
+        );
+        return null;
+      }
+    }
+
+    const profileCandidate = params.get('profile') || params.get('config');
+    if (!profileCandidate) {
+      return null;
+    }
+
+    if (/^[a-zA-Z0-9_-]+$/.test(profileCandidate)) {
+      return profileCandidate;
     }
 
     return null;

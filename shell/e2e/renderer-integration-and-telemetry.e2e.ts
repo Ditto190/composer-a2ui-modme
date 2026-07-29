@@ -35,7 +35,11 @@ const CONFIGS: IntegrationConfig[] = [
     pickupLocationLocator: iframe =>
       iframe.locator('.a2ui-text-field-container:has-text("Pick-up Location") input'),
     fillDate: async (locator, value) => {
-      await locator.fill(value);
+      await locator.evaluate((el: HTMLInputElement, val) => {
+        el.value = val;
+        el.dispatchEvent(new Event('input', {bubbles: true}));
+        el.dispatchEvent(new Event('change', {bubbles: true}));
+      }, value);
     },
   },
   {
@@ -71,6 +75,19 @@ const CONFIGS: IntegrationConfig[] = [
 test.beforeEach(async ({page}) => {
   page.on('pageerror', err => {
     console.error(`Unhandled page error: ${err.message}`);
+  });
+
+  await page.route('**/config.json', async route => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profiles: {
+          default: {
+            allowOverrides: true,
+          },
+        },
+      }),
+    });
   });
 
   await page.addInitScript(() => {
@@ -295,8 +312,8 @@ test.describe('Bridge Telemetry Layout Constraints', () => {
       window.parent.postMessage(msg, '*');
     }, unblockMsg);
 
-    await expect(page.getByTestId('raw-message-envelope').first()).toBeVisible();
-    const envText = await page.getByTestId('raw-message-envelope').first().textContent();
-    expect(envText).toContain(PreviewBridgeMessageType.FORCE_UNBLOCK);
+    const envelope = page.getByTestId('raw-message-envelope').first();
+    await expect(envelope).toBeVisible();
+    await expect(envelope).toContainText(PreviewBridgeMessageType.FORCE_UNBLOCK);
   });
 });
