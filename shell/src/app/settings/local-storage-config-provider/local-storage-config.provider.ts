@@ -198,10 +198,13 @@ export class LocalStorageAppConfigProvider extends AppConfigProvider {
    * @param key The configuration-provided API key.
    */
   override setApiKeyFromConfig(key: string): void {
-    const trimmed = key.trim();
+    const trimmed = (key || '').trim();
     if (trimmed) {
       this._isApiKeyProvidedByConfig.set(true);
       this._geminiApiKey.set(trimmed);
+    } else {
+      this._isApiKeyProvidedByConfig.set(false);
+      this._geminiApiKey.set('');
     }
   }
 

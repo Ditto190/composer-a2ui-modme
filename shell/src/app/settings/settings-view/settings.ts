@@ -24,6 +24,7 @@ import {
   Signal,
   WritableSignal,
 } from '@angular/core';
+import {takeUntilDestroyed, toSignal} from '@angular/core/rxjs-interop';
 import {NonNullableFormBuilder, ReactiveFormsModule, Validators} from '@angular/forms';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatInputModule} from '@angular/material/input';
@@ -38,6 +39,8 @@ import {HostCommunication} from '../../shell/host-communication/host-communicati
 import {CatalogManagement} from '../../storage/catalog-management/catalog-management';
 import {AppConfigProvider, AuthType} from '../app-config-provider/app-config-provider';
 import {IS_1P_AUTH_ENABLED} from '../../shell/environment-tokens/environment-tokens';
+import {ProfileSelector} from '../profile-selector/profile-selector';
+import {SettingsService} from '../settings-service/settings.service';
 import {locationAssign} from 'safevalues/dom';
 
 /**
@@ -56,6 +59,7 @@ import {locationAssign} from 'safevalues/dom';
     MatCardModule,
     MatChipsModule,
     MatSlideToggleModule,
+    ProfileSelector,
   ],
   templateUrl: './settings.ng.html',
   styleUrl: './settings.scss',
@@ -68,6 +72,7 @@ export class Settings implements OnInit {
   private readonly hostCommunication = inject(HostCommunication);
   private readonly catalogManagement = inject(CatalogManagement);
   private readonly configProvider = inject(AppConfigProvider);
+  protected readonly settingsService = inject(SettingsService);
 
   protected readonly is1PAuthEnabled = inject(IS_1P_AUTH_ENABLED);
 
@@ -83,6 +88,11 @@ export class Settings implements OnInit {
   readonly forceThirdPartyAuth: WritableSignal<boolean> = signal(false);
   readonly saveErrorMessage: WritableSignal<string | null> = signal(null);
   readonly isSaving: WritableSignal<boolean> = signal(false);
+
+  private readonly initialProfileId: WritableSignal<string | null> = signal<string | null>(null);
+  private readonly initialForceThirdPartyAuth: WritableSignal<boolean> = signal<boolean>(false);
+  private readonly initialRendererUrl: WritableSignal<string> = signal<string>('');
+  private readonly initialApiKey: WritableSignal<string> = signal<string>('');
 
   readonly bridgeConnected: Signal<boolean> = computed(
     () => this.hostCommunication.latestEnvelope() !== null,
@@ -107,6 +117,22 @@ export class Settings implements OnInit {
     apiKey: [''],
   });
 
+  private readonly formEvents = toSignal(this.settingsForm.events);
+
+  readonly hasUnsavedChanges: Signal<boolean> = computed(() => {
+    this.formEvents();
+    const profileChanged = this.settingsService.selectedProfileId() !== this.initialProfileId();
+    const authChanged = this.forceThirdPartyAuth() !== this.initialForceThirdPartyAuth();
+    const urlChanged = this.settingsForm.controls.rendererUrl.value !== this.initialRendererUrl();
+    const apiKeyChanged = this.settingsForm.controls.apiKey.value !== this.initialApiKey();
+    return profileChanged || authChanged || urlChanged || apiKeyChanged;
+  });
+
+  readonly isSaveDisabled: Signal<boolean> = computed(() => {
+    this.formEvents();
+    return this.isSaving() || this.settingsForm.invalid || !this.hasUnsavedChanges();
+  });
+
   constructor() {
     effect(() => {
       const currentKey = this.configProvider.geminiApiKey();
@@ -124,13 +150,43 @@ export class Settings implements OnInit {
       }
     });
 
+    this.settingsForm.controls.rendererUrl.valueChanges.pipe(takeUntilDestroyed()).subscribe(() => {
+      if (this.settingsForm.controls.rendererUrl.dirty) {
+        queueMicrotask(() => {
+          const selectedId = this.settingsService.selectedProfileId();
+          if (selectedId !== null) {
+            const currentVal = this.settingsForm.controls.rendererUrl.value;
+            const activeUrl = this.settingsService.activeProfile()?.rendererUrl;
+            if (currentVal !== activeUrl) {
+              this.settingsService.selectProfile(null).catch(err => {
+                console.warn('Failed to reset selected profile on renderer URL edit:', err);
+              });
+            }
+          }
+        });
+      }
+    });
+
     effect(() => {
+      const allowOverrides = this.settingsService.allowOverrides();
+      const startupLocked = this.startupResolution.isContextLocked();
+      const isUrlLocked = !allowOverrides || startupLocked;
+      this.isLocked.set(isUrlLocked);
+
+      const rendererControl = this.settingsForm.controls.rendererUrl;
+      if (isUrlLocked) {
+        rendererControl.disable({emitEvent: false});
+      } else {
+        rendererControl.enable({emitEvent: false});
+      }
+
       this.configureApiKeyControl(this.isThirdParty());
     });
   }
 
   ngOnInit(): void {
-    const locked = this.startupResolution.isContextLocked();
+    const allowOverrides = this.settingsService.allowOverrides();
+    const locked = !allowOverrides || this.startupResolution.isContextLocked();
     this.isLocked.set(locked);
 
     const is3P = this.startupResolution.isThirdPartyEnvironment();
@@ -141,10 +197,60 @@ export class Settings implements OnInit {
     if (locked) {
       this.settingsForm.controls.rendererUrl.disable();
     }
+    this.configureApiKeyControl(is3P);
+
+    const url = this.configProvider.rendererUrl();
+    if (
+      !this.settingsForm.controls.rendererUrl.dirty &&
+      url !== this.settingsForm.controls.rendererUrl.value
+    ) {
+      this.settingsForm.controls.rendererUrl.setValue(url, {emitEvent: false});
+    }
+
+    const key = this.configProvider.geminiApiKey();
+    if (
+      !this.settingsForm.controls.apiKey.dirty &&
+      key !== this.settingsForm.controls.apiKey.value
+    ) {
+      this.settingsForm.controls.apiKey.setValue(key, {emitEvent: false});
+    }
+
+    this.initialProfileId.set(this.settingsService.selectedProfileId());
+    this.initialForceThirdPartyAuth.set(this.forceThirdPartyAuth());
+    this.initialRendererUrl.set(this.configProvider.rendererUrl());
+    this.initialApiKey.set(this.configProvider.geminiApiKey());
+  }
+
+  async onProfileSelected(profileId: string | null): Promise<void> {
+    await this.settingsService.selectProfile(profileId);
+    if (profileId === null) {
+      this.settingsForm.controls.rendererUrl.setValue('');
+      this.settingsForm.controls.rendererUrl.enable({emitEvent: false});
+      this.configureApiKeyControl(this.isThirdParty());
+      this.settingsForm.controls.rendererUrl.markAsPristine();
+    } else {
+      const active = this.settingsService.activeProfile();
+      if (active?.rendererUrl !== undefined) {
+        this.settingsForm.controls.rendererUrl.setValue(active.rendererUrl);
+        this.settingsForm.controls.rendererUrl.markAsPristine();
+      }
+    }
+    this.settingsForm.controls.apiKey.markAsPristine();
   }
 
   private configureApiKeyControl(is3P: boolean): void {
     const apiKeyControl = this.settingsForm.controls.apiKey;
+    const allowOverrides = this.settingsService.allowOverrides();
+
+    if (!allowOverrides) {
+      apiKeyControl.clearValidators();
+      if (apiKeyControl.enabled) {
+        apiKeyControl.disable({emitEvent: false});
+      }
+      apiKeyControl.updateValueAndValidity({emitEvent: false});
+      return;
+    }
+
     if (is3P && !this.isApiKeyProvidedByConfig()) {
       apiKeyControl.setValidators([Validators.pattern(/\S/)]);
       if (apiKeyControl.disabled) {
@@ -160,6 +266,10 @@ export class Settings implements OnInit {
   }
 
   async saveSettings(): Promise<void> {
+    if (this.isSaving() || !this.hasUnsavedChanges()) {
+      return;
+    }
+
     this.saveErrorMessage.set(null);
 
     if (this.settingsForm.invalid) {
@@ -171,20 +281,29 @@ export class Settings implements OnInit {
     this.isSaving.set(true);
     try {
       const values = this.settingsForm.getRawValue();
+      const trimmedUrl = values.rendererUrl.trim();
+      const trimmedApiKey = values.apiKey.trim();
 
       if (this.isThirdParty()) {
         if (!this.isLocked()) {
-          this.configProvider.setRendererUrl(values.rendererUrl.trim());
+          this.configProvider.setRendererUrl(trimmedUrl);
         }
         if (!this.isApiKeyProvidedByConfig()) {
-          await this.configProvider.setGeminiApiKey(values.apiKey.trim());
+          await this.configProvider.setGeminiApiKey(trimmedApiKey);
         }
       } else {
         await this.configProvider.purgeGeminiApiKey();
         if (!this.isLocked()) {
-          this.configProvider.setRendererUrl(values.rendererUrl.trim());
+          this.configProvider.setRendererUrl(trimmedUrl);
         }
       }
+      this.settingsForm.controls.rendererUrl.setValue(trimmedUrl, {emitEvent: false});
+      this.settingsForm.controls.apiKey.setValue(trimmedApiKey, {emitEvent: false});
+      this.initialProfileId.set(this.settingsService.selectedProfileId());
+      this.initialForceThirdPartyAuth.set(this.forceThirdPartyAuth());
+      this.initialRendererUrl.set(this.configProvider.rendererUrl());
+      this.initialApiKey.set(this.configProvider.geminiApiKey());
+      this.settingsForm.markAsPristine();
 
       this.reloadWindow();
     } catch (err) {
