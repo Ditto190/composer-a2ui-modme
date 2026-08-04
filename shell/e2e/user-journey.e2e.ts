@@ -51,10 +51,15 @@ test.describe('E2E Workspace User Journey', () => {
     await expect(page.locator('.first-party-auth-section')).toBeHidden();
     await expect(page.getByText('Gemini API Provisioning')).toBeVisible();
 
-    // 5. Provide API key and save settings to unlock workspace
-    await page.getByLabel('Gemini API Key').fill('test-api-key');
-    const saveBtn = page.getByRole('button', {name: 'Save Settings'});
-    await Promise.all([page.waitForURL(url => url.pathname === '/'), saveBtn.click()]);
+    // 5. Provide API key to unlock workspace
+    await page.locator('.add-api-key-button').click();
+    await page.locator('#api-key-name-input').fill('Test Key');
+    await page.locator('#api-key-value-input').fill('test-api-key');
+    await page.getByRole('dialog').getByRole('button', {name: 'Add', exact: true}).click();
+
+    // 6. Navigate back to workspace
+    await page.getByRole('link', {name: 'Composer Workspace'}).click();
+    await page.waitForURL(url => url.pathname === '/');
     await page.waitForLoadState('load');
 
     // 7. Wait for Monaco to load and enter malformed JSON

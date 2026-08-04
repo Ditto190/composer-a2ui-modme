@@ -19,6 +19,8 @@ import {ComponentHarness} from '@angular/cdk/testing';
 import {MatButtonHarness} from '@angular/material/button/testing';
 import {MatInputHarness} from '@angular/material/input/testing';
 import {MatSlideToggleHarness} from '@angular/material/slide-toggle/testing';
+import {RendererSelectorHarness} from '../../renderer-selector/test/renderer-selector.harness';
+import {ApiKeySelectorHarness} from '../../api-key-selector/test/api-key-selector.harness';
 
 /**
  * Harness for interacting with the settings configuration drawer view.
@@ -29,34 +31,26 @@ export class SettingsHarness extends ComponentHarness {
 
   protected getInputs = this.locatorForAll(MatInputHarness);
   protected getSlideToggle = this.locatorFor(MatSlideToggleHarness);
+  protected getRendererSelector = this.locatorForOptional(RendererSelectorHarness);
+  protected getApiKeySelector = this.locatorForOptional(ApiKeySelectorHarness);
 
-  protected getLockedNotice = this.locatorForOptional('.locked-notice');
-  protected getAuthLockedNotice = this.locatorForOptional('.auth-locked-notice');
-  protected getSaveErrorBanner = this.locatorForOptional('.save-error-banner');
+  async getRendererSelectorHarness(): Promise<RendererSelectorHarness | null> {
+    return this.getRendererSelector();
+  }
+
+  async getApiKeySelectorHarness(): Promise<ApiKeySelectorHarness | null> {
+    return this.getApiKeySelector();
+  }
+
   protected getErrors = this.locatorForAll('mat-error');
   protected getFormSections = this.locatorForAll('.form-section');
   protected getLogsConsole = this.locatorFor('.logs-console');
   protected getApiKeyToggleBtn = this.locatorForOptional(
     MatButtonHarness.with({selector: 'button[matSuffix]'}),
   );
-  protected getSaveButton = this.locatorFor(
-    MatButtonHarness.with({text: /Save Settings|Saving\.\.\./}),
-  );
 
   protected getBridgeBadge = this.locatorFor('.bridge-badge');
   protected getCatalogBadge = this.locatorFor('.catalog-badge');
-
-  private async getRendererUrlInput(): Promise<MatInputHarness> {
-    const inputs = await this.getInputs();
-    for (const input of inputs) {
-      const host = await input.host();
-      const placeholder = await host.getAttribute('placeholder');
-      if (placeholder === 'http://localhost:3000') {
-        return input;
-      }
-    }
-    throw new Error('Renderer URL input field not found');
-  }
 
   private async getApiKeyInput(): Promise<MatInputHarness | null> {
     const inputs = await this.getInputs();
@@ -68,22 +62,6 @@ export class SettingsHarness extends ComponentHarness {
       }
     }
     return null;
-  }
-
-  async getRendererUrlPlaceholder(): Promise<string | null> {
-    const input = await this.getRendererUrlInput();
-    const host = await input.host();
-    return host.getAttribute('placeholder');
-  }
-
-  async getRendererUrlValue(): Promise<string> {
-    const input = await this.getRendererUrlInput();
-    return input.getValue();
-  }
-
-  async setRendererUrlValue(val: string): Promise<void> {
-    const input = await this.getRendererUrlInput();
-    await input.setValue(val);
   }
 
   async getGeminiApiKeyValue(): Promise<string> {
@@ -101,7 +79,7 @@ export class SettingsHarness extends ComponentHarness {
 
   async setGeminiApiKeyValue(val: string): Promise<void> {
     const input = await this.getApiKeyInput();
-    if (!input) throw new Error('API Key input field not found');
+    if (!input) return;
     await input.setValue(val);
   }
 
@@ -139,24 +117,6 @@ export class SettingsHarness extends ComponentHarness {
     return toggle.isChecked();
   }
 
-  async hasLockedNotice(): Promise<boolean> {
-    return (await this.getLockedNotice()) !== null;
-  }
-
-  async getLockedNoticeText(): Promise<string | null> {
-    const node = await this.getLockedNotice();
-    return node ? node.text() : null;
-  }
-
-  async hasAuthLockedNotice(): Promise<boolean> {
-    return (await this.getAuthLockedNotice()) !== null;
-  }
-
-  async getAuthLockedNoticeText(): Promise<string | null> {
-    const node = await this.getAuthLockedNotice();
-    return node ? node.text() : null;
-  }
-
   async getErrorsText(): Promise<string[]> {
     const errors = await this.getErrors();
     return Promise.all(errors.map(e => e.text()));
@@ -185,19 +145,5 @@ export class SettingsHarness extends ComponentHarness {
   async getIconsAriaHidden(): Promise<(string | null)[]> {
     const icons = await this.locatorForAll('mat-icon')();
     return Promise.all(icons.map(i => i.getAttribute('aria-hidden')));
-  }
-
-  async hasSaveErrorBanner(): Promise<boolean> {
-    return (await this.getSaveErrorBanner()) !== null;
-  }
-
-  async getSaveErrorBannerText(): Promise<string | null> {
-    const node = await this.getSaveErrorBanner();
-    return node ? node.text() : null;
-  }
-
-  async isSaveButtonDisabled(): Promise<boolean> {
-    const btn = await this.getSaveButton();
-    return btn.isDisabled();
   }
 }

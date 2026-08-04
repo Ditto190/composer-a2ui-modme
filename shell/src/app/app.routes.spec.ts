@@ -21,7 +21,7 @@ import {provideNoopAnimations} from '@angular/platform-browser/animations';
 import {signal} from '@angular/core';
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import {routes} from './app.routes';
-import {StartupResolution, ProfileConfig} from './shell/startup-resolution/startup-resolution';
+import {StartupResolution, RendererConfig} from './shell/startup-resolution/startup-resolution';
 import {ChatState} from './chat/chat-state/chat-state';
 import {ChatCoordinator} from './chat/chat-service/chat-coordinator';
 import {StateSync} from './chat/state-sync/state-sync';
@@ -39,16 +39,14 @@ import {PipelineStatus} from './chat/pipeline-status/pipeline-status';
 
 class MockStartupResolution {
   readonly resolvedUrl = signal('http://localhost:4200');
-  readonly isLockedContext = signal(false);
-  readonly profiles = signal<Record<string, ProfileConfig>>({});
-  readonly selectedProfileId = signal<string | null>(null);
-  readonly activeProfile = signal<ProfileConfig | null>(null);
+  readonly renderers = signal<Record<string, RendererConfig>>({});
+  readonly selectedRendererId = signal<string | null>(null);
+  readonly activeRenderer = signal<RendererConfig | null>(null);
   readonly isLoading = signal(false);
   readonly error = signal<string | null>(null);
-  setSelectedProfileId = vi.fn();
+  setSelectedRendererId = vi.fn();
   isEnvironmentValid = vi.fn().mockReturnValue(true);
   isExtensionMode = vi.fn().mockReturnValue(false);
-  isContextLocked = vi.fn().mockReturnValue(false);
   getResolvedRendererUrl = vi.fn().mockReturnValue('http://localhost:4200');
   isThirdPartyEnvironment = vi.fn().mockReturnValue(false);
 }

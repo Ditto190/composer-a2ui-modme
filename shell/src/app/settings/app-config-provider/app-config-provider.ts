@@ -108,6 +108,13 @@ export abstract class AppConfigProvider {
   abstract setApiKeyFromConfig(key: string): void;
 
   /**
+   * Sets the API key in runtime memory without persisting it.
+   *
+   * @param key The API key to set in runtime state.
+   */
+  abstract setRuntimeApiKey(key: string): void;
+
+  /**
    * Erases the Gemini developer API key credential from secure persistence
    * and resets our active reactive Signal to an empty string.
    */

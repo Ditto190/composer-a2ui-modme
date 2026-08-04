@@ -26,10 +26,8 @@ test.beforeEach(async ({page}) => {
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
-        profiles: {
-          default: {
-            allowOverrides: true,
-          },
+        renderers: {
+          default: {},
         },
       }),
     });
@@ -47,6 +45,10 @@ test.beforeEach(async ({page}) => {
     try {
       localStorage.clear();
       localStorage.setItem('a2ui_composer_force_1p', 'true');
+      localStorage.setItem(
+        'a2ui_composer_allowed_origins',
+        JSON.stringify(['http://custom-renderer.com']),
+      );
     } catch (e) {}
   });
   await page.goto('/?renderer=http://custom-renderer.com/index.html');

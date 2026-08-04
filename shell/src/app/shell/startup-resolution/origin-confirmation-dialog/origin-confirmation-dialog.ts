@@ -1,5 +1,4 @@
 /**
- * @license
  * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,13 +14,17 @@
  * limitations under the License.
  */
 
-/**
- * Enumerates the highly secure database keys reserved for credentials persistence.
- * Shields the authentication and IndexedDB mechanics from raw string keys.
- */
-export enum SecureCredentialsKey {
-  /** Key for storing the personal third-party Gemini developer API token in IndexedDB. */
-  GEMINI_API_KEY = 'a2ui_composer_api_key',
-  /** Key for storing user custom API keys list in IndexedDB. */
-  CUSTOM_API_KEYS = 'a2ui_custom_api_keys',
+import {ChangeDetectionStrategy, Component, inject} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
+import {MAT_DIALOG_DATA, MatDialogModule} from '@angular/material/dialog';
+
+@Component({
+  selector: 'a2ui-composer-origin-confirmation-dialog',
+  templateUrl: './origin-confirmation-dialog.ng.html',
+  styleUrl: './origin-confirmation-dialog.scss',
+  imports: [MatDialogModule, MatButtonModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class OriginConfirmationDialog {
+  readonly data = inject<{origin: string}>(MAT_DIALOG_DATA);
 }

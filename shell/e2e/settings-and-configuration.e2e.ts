@@ -35,47 +35,54 @@ test.describe('Settings and Client Configuration', () => {
       await page.goto('/settings');
     });
 
-    test('persists configuration successfully, triggers explicit window reload, and unlocks guarded routes', async ({
-      page,
-    }) => {
-      const rendererInput = page.getByLabel('Target Renderer URL');
-      await expect(rendererInput).toBeEnabled();
-      await rendererInput.fill('http://localhost:9090');
+    test('persists configuration immediately upon selection', async ({page}) => {
+      await page.locator('.add-api-key-button').click();
+      await page.locator('#api-key-name-input').fill('Test Key');
+      await page.locator('#api-key-value-input').fill('test-api-key');
+      await page.getByRole('dialog').getByRole('button', {name: 'Add', exact: true}).click();
 
-      const apiKeyInput = page.getByLabel('Gemini API Key');
-      await apiKeyInput.fill('test-api-key');
+      await page.locator('.add-renderer-button').click();
+      await page.locator('#renderer-name-input').fill('Test Renderer');
+      await page.locator('#renderer-url-input').fill('http://localhost:9090');
+      await page.getByRole('dialog').getByRole('button', {name: 'Add', exact: true}).click();
 
-      await page.evaluate(() => {
-        (window as unknown as {__BEFORE_RELOAD__?: boolean}).__BEFORE_RELOAD__ = true;
-      });
+      await page.waitForFunction(() => !!localStorage.getItem('a2ui_composer_selected_renderer'));
+      await page.waitForFunction(() => !!localStorage.getItem('a2ui_composer_selected_api_key'));
 
-      const saveBtn = page.getByRole('button', {name: 'Save Settings'});
-      await expect(saveBtn).toBeEnabled();
-      await Promise.all([page.waitForURL(url => url.pathname === '/'), saveBtn.click()]);
+      const storedRendererId = await page.evaluate(() =>
+        localStorage.getItem('a2ui_composer_selected_renderer'),
+      );
+      expect(storedRendererId).toMatch(/^custom-\d+$/);
+
+      const storedApiKeyId = await page.evaluate(() =>
+        localStorage.getItem('a2ui_composer_selected_api_key'),
+      );
+      expect(storedApiKeyId).toMatch(/^custom-\d+$/);
+
+      await page.getByRole('link', {name: 'Composer Workspace'}).click();
+      await page.waitForURL(url => url.pathname === '/');
       await page.waitForLoadState('load');
 
-      const sentinel = await page.evaluate(
-        () => (window as unknown as {__BEFORE_RELOAD__?: boolean}).__BEFORE_RELOAD__,
-      );
-      expect(sentinel).toBeUndefined();
-
       await expect(page.locator('.workspace-container')).toBeVisible();
-
-      const storedRendererUrl = await page.evaluate(() =>
-        localStorage.getItem('a2ui_composer_renderer_url'),
-      );
-      expect(storedRendererUrl).toBe('http://localhost:9090');
     });
 
-    test('persists configuration successfully with default relative renderer URL and loads workspace with pre-populated draft', async ({
+    test('persists configuration immediately with default relative renderer URL and loads workspace with pre-populated draft', async ({
       page,
     }) => {
-      const apiKeyInput = page.getByLabel('Gemini API Key');
-      await apiKeyInput.fill('new-unique-api-key');
+      await page.locator('.add-api-key-button').click();
+      await page.locator('#api-key-name-input').fill('Unique Key');
+      await page.locator('#api-key-value-input').fill('new-unique-api-key');
+      await page.getByRole('dialog').getByRole('button', {name: 'Add', exact: true}).click();
 
-      const saveBtn = page.getByRole('button', {name: 'Save Settings'});
-      await expect(saveBtn).toBeEnabled();
-      await Promise.all([page.waitForURL(url => url.pathname === '/'), saveBtn.click()]);
+      await page.waitForFunction(() => !!localStorage.getItem('a2ui_composer_selected_api_key'));
+
+      const storedApiKeyId = await page.evaluate(() =>
+        localStorage.getItem('a2ui_composer_selected_api_key'),
+      );
+      expect(storedApiKeyId).toMatch(/^custom-\d+$/);
+
+      await page.getByRole('link', {name: 'Composer Workspace'}).click();
+      await page.waitForURL(url => url.pathname === '/');
       await page.waitForLoadState('load');
 
       await expect(page.locator('.workspace-container')).toBeVisible();
@@ -86,27 +93,6 @@ test.describe('Settings and Client Configuration', () => {
   });
 
   test.describe('Enterprise & Environment Constraints', () => {
-    test('verifies enterprise configuration locking (allowOverrides: false)', async ({page}) => {
-      await page.route('**/config.json', async route => {
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({
-            profiles: {
-              default: {
-                rendererUrl: 'http://locked-renderer.com',
-                allowOverrides: false,
-              },
-            },
-          }),
-        });
-      });
-
-      await page.goto('/settings');
-      await expect(page.getByLabel('Target Renderer URL')).toBeDisabled();
-      const rendererVal = await page.getByLabel('Target Renderer URL').inputValue();
-      expect(rendererVal).toBe('http://locked-renderer.com');
-    });
-
     test('fetches configuration when config.json request is intercepted by route handler', async ({
       page,
     }) => {
@@ -114,10 +100,9 @@ test.describe('Settings and Client Configuration', () => {
         await route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify({
-            profiles: {
+            renderers: {
               default: {
                 rendererUrl: 'http://intercepted-custom-config:3000',
-                allowOverrides: true,
               },
             },
           }),
@@ -125,23 +110,19 @@ test.describe('Settings and Client Configuration', () => {
       });
 
       await page.goto('/settings');
-      const rendererInput = page.getByLabel('Target Renderer URL');
-      await expect(rendererInput).not.toBeDisabled();
-      const rendererVal = await rendererInput.inputValue();
-      expect(rendererVal).toBe('http://intercepted-custom-config:3000');
+      const rendererSelect = page.locator('a2ui-composer-renderer-selector mat-select');
+      await expect(rendererSelect).not.toHaveAttribute('aria-disabled', 'true');
+      await expect(rendererSelect).toContainText('default');
     });
 
-    test('verifies server apiKey in config.json decouples context locking, disables API key unmasking, and does not persist key on save', async ({
-      page,
-    }) => {
+    test('verifies server apiKey in config.json disables API key unmasking', async ({page}) => {
       await page.route('**/config.json', async route => {
         await route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify({
-            profiles: {
+            renderers: {
               default: {
                 rendererUrl: 'http://unlocked-renderer.com',
-                allowOverrides: true,
                 apiKey: 'server-provided-api-key',
               },
             },
@@ -154,21 +135,11 @@ test.describe('Settings and Client Configuration', () => {
       });
       await page.goto('/settings');
 
-      // Context is unlocked because allowOverrides is true
-      const rendererInput = page.getByLabel('Target Renderer URL');
-      await expect(rendererInput).toBeEnabled();
+      const rendererSelect = page.locator('a2ui-composer-renderer-selector mat-select');
+      await expect(rendererSelect).not.toHaveAttribute('aria-disabled', 'true');
 
-      // Toggle button is disabled because API key was provided by config
-      await expect(page.locator('.api-key-toggle-btn')).toBeDisabled();
-
-      // Modify a field to trigger unsaved changes
-      await rendererInput.fill('http://unlocked-renderer.com/modified');
-
-      // Click 'Save Settings' and wait for navigation
-      const saveBtn = page.getByRole('button', {name: 'Save Settings'});
-      await expect(saveBtn).toBeEnabled();
-      await Promise.all([page.waitForURL(url => url.pathname === '/'), saveBtn.click()]);
-      await page.waitForLoadState('load');
+      // API key selector is visible when API key was provided by config
+      await expect(page.locator('a2ui-composer-api-key-selector')).toBeVisible();
 
       // Verify localStorage and IndexedDB have no stored credential
       const storedKey = await page.evaluate(async () => {

@@ -14,14 +14,16 @@
  * limitations under the License.
  */
 
-import {Injectable, inject, signal, DestroyRef, untracked, effect} from '@angular/core';
+import {Injectable, inject, signal, DestroyRef} from '@angular/core';
 import {takeUntilDestroyed, toObservable} from '@angular/core/rxjs-interop';
+import {merge, of} from 'rxjs';
 import {debounceTime, distinctUntilChanged, skip} from 'rxjs/operators';
 import {ChatState} from '../chat-state/chat-state';
 import {MessageRole} from '../llm-client/llm-client';
 import {CAR_BOOKING} from '../chat-service/initial-draft';
 import {CatalogManagement} from '../../storage/catalog-management/catalog-management';
 import {RenderA2uiItem, A2uiComponentInstance, UpdateComponentsDetails} from 'a2ui-bridge';
+import {StartupResolution} from '../../shell/startup-resolution/startup-resolution';
 import {tryParseJsonArray, formatJson} from '../../utils/json';
 
 /**
@@ -48,6 +50,7 @@ export class StateSync {
   private readonly destroyRef = inject(DestroyRef);
   private readonly chatState = inject(ChatState);
   private readonly catalogManagement = inject(CatalogManagement);
+  private readonly startupResolution = inject(StartupResolution, {optional: true});
 
   // A "draft" represents the volatile, unsaved in-memory JSON array
   // payload containing the active surface setup, component hierarchy,
@@ -70,19 +73,22 @@ export class StateSync {
   private readonly _draftInput = signal<string>('');
 
   constructor() {
-    effect(() => {
-      const catalog = this.catalogManagement.activeCatalog();
-      if (catalog) {
-        const catalogId = catalog.catalogId || catalog.$id || '';
-        untracked(() => {
-          const currentDraft = this._activeDraft();
-          const draftCatalogId = this.getCatalogIdFromDraft(currentDraft);
-          if (currentDraft === '' || draftCatalogId !== catalogId) {
-            this._activeDraft.set(this.getInitialDraft(catalogId));
-          }
-        });
-      }
-    });
+    const selectedRendererId$ = this.startupResolution?.selectedRendererId$
+      ? toObservable(this.startupResolution.selectedRendererId$)
+      : of(null);
+    const activeCatalog$ = toObservable(this.catalogManagement.activeCatalog);
+
+    merge(selectedRendererId$, activeCatalog$)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        const catalog = this.catalogManagement.activeCatalog();
+        const catalogId = catalog ? catalog.catalogId || catalog.$id || '' : '';
+        const currentDraft = this._activeDraft();
+        const draftCatalogId = this.getCatalogIdFromDraft(currentDraft);
+        if (currentDraft === '' || draftCatalogId !== catalogId) {
+          this._activeDraft.set(this.getInitialDraft(catalogId));
+        }
+      });
 
     toObservable(this._draftInput)
       .pipe(skip(1), debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
@@ -127,6 +133,10 @@ export class StateSync {
   }
 
   private getInitialDraft(catalogId: string): string {
+    const activeRenderer = this.startupResolution?.activeRenderer();
+    if (activeRenderer?.samplePayload) {
+      return activeRenderer.samplePayload;
+    }
     if (catalogId === 'https://a2ui.org/specification/v0_9/basic_catalog.json') {
       return CAR_BOOKING;
     }
