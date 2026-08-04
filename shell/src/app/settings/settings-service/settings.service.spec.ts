@@ -17,7 +17,11 @@
 import {TestBed} from '@angular/core/testing';
 import {signal, WritableSignal} from '@angular/core';
 import {SettingsService} from './settings.service';
-import {StartupResolution, RendererConfig} from '../../shell/startup-resolution/startup-resolution';
+import {
+  ApiKeyConfig,
+  RendererConfig,
+  StartupResolution,
+} from '../../shell/startup-resolution/startup-resolution';
 import {AppConfigProvider} from '../app-config-provider/app-config-provider';
 import {SecureCredentialsStorage} from '../../storage/secure-credentials-storage/secure-credentials-storage';
 import {LocalStorageInteractions} from '../../storage/local-storage-interactions/local-storage-interactions';
@@ -31,7 +35,7 @@ describe('SettingsService', () => {
     renderers: WritableSignal<Record<string, RendererConfig>>;
     selectedRendererId: WritableSignal<string | null>;
     activeRenderer: WritableSignal<RendererConfig | null>;
-    apiKeys: WritableSignal<Record<string, string>>;
+    apiKeys: WritableSignal<Record<string, ApiKeyConfig>>;
     setSelectedRendererId: ReturnType<typeof vi.fn>;
     isThirdPartyEnvironment: ReturnType<typeof vi.fn>;
   };
@@ -260,8 +264,8 @@ describe('SettingsService', () => {
   describe('API Key Management and Fallback', () => {
     it('getAvailableApiKeys returns a merged list of static API keys from config.json.apiKeys (read-only) and custom API keys from SecureCredentialsStorage', async () => {
       mockStartupResolution.apiKeys.set({
-        default: 'static-default',
-        prod: 'static-prod',
+        default: {apiKey: 'static-default'},
+        prod: {apiKey: 'static-prod'},
       });
       mockSecureStorage.getCustomApiKeys.mockResolvedValue([
         {id: 'custom-1', name: 'My Custom Key', key: 'custom-secret-1'},
@@ -276,9 +280,48 @@ describe('SettingsService', () => {
       ]);
     });
 
+    it('extracts key and displayName for object schema apiKeys in getAvailableApiKeys', async () => {
+      mockStartupResolution.apiKeys.set({
+        default: {apiKey: 'AIzaSyDefault', displayName: 'Gemini Enterprise'},
+        prod: {apiKey: 'AIzaSyProd', displayName: 'Production Key'},
+      });
+      mockSecureStorage.getCustomApiKeys.mockResolvedValue([]);
+
+      const available = await service.getAvailableApiKeys();
+
+      expect(available).toEqual([
+        {id: 'default', name: 'Gemini Enterprise', key: 'AIzaSyDefault', readOnly: true},
+        {id: 'prod', name: 'Production Key', key: 'AIzaSyProd', readOnly: true},
+      ]);
+    });
+
+    it('computes "default" API key on startup when no API key is saved in LocalStorage and default exists in static config, without writing to LocalStorage', async () => {
+      mockStartupResolution.apiKeys.set({});
+      await service.selectApiKey(null);
+
+      mockStartupResolution.apiKeys.set({
+        default: {apiKey: 'AIzaSyDefault', displayName: 'Gemini Enterprise'},
+      });
+
+      const effective = await service.getEffectiveApiKey();
+
+      expect(effective).toBe('AIzaSyDefault');
+      expect(service.selectedApiKeyId()).toBe('default');
+      expect(mockLocalStorage.getItem(LocalStorageKey.SELECTED_API_KEY)).toBeNull();
+    });
+
+    it('resolves string value from object schema static key when selectedApiKeyId is set', async () => {
+      mockStartupResolution.apiKeys.set({
+        custom_static: {apiKey: 'AIzaSyObjVal', displayName: 'Object Static'},
+      });
+
+      await service.selectApiKey('custom_static');
+      expect(await service.getEffectiveApiKey()).toBe('AIzaSyObjVal');
+    });
+
     it('when an API key ID is selected (selectApiKey(id)), getEffectiveApiKey resolves the value from config.json.apiKeys[id] or from SecureCredentialsStorage', async () => {
       mockStartupResolution.apiKeys.set({
-        prod: 'static-prod-key',
+        prod: {apiKey: 'static-prod-key'},
       });
       mockSecureStorage.getCustomApiKeys.mockResolvedValue([
         {id: 'custom-1', name: 'Custom One', key: 'custom-key-value'},
@@ -286,16 +329,16 @@ describe('SettingsService', () => {
 
       await service.selectApiKey('prod');
       expect(await service.getEffectiveApiKey()).toBe('static-prod-key');
-      expect(service.selectedApiKeyId$()).toBe('prod');
+      expect(service.selectedApiKeyId()).toBe('prod');
 
       await service.selectApiKey('custom-1');
       expect(await service.getEffectiveApiKey()).toBe('custom-key-value');
-      expect(service.selectedApiKeyId$()).toBe('custom-1');
+      expect(service.selectedApiKeyId()).toBe('custom-1');
     });
 
     it('returns empty string and sets effectiveApiKey to empty string when explicit selectedId cannot be resolved', async () => {
       mockStartupResolution.apiKeys.set({
-        default: 'static-default-key',
+        default: {apiKey: 'static-default-key'},
       });
       mockSecureStorage.getCustomApiKey.mockResolvedValue(null);
 
@@ -320,7 +363,7 @@ describe('SettingsService', () => {
 
     it('saving a custom API key via saveCustomApiKey(id, name, key) persists it in SecureCredentialsStorage without modifying config.json static entries', async () => {
       mockStartupResolution.apiKeys.set({
-        default: 'static-default-key',
+        default: {apiKey: 'static-default-key'},
       });
 
       await service.saveCustomApiKey('my-custom', 'My Custom', 'secret-val');
@@ -331,28 +374,28 @@ describe('SettingsService', () => {
         'secret-val',
       );
       expect(mockStartupResolution.apiKeys()).toEqual({
-        default: 'static-default-key',
+        default: {apiKey: 'static-default-key'},
       });
     });
 
-    it('deleting a custom API key (deleteCustomApiKey(id)) removes it from SecureCredentialsStorage; if it was the selected key, selectedApiKeyId$ resets to null', async () => {
+    it('deleting a custom API key (deleteCustomApiKey(id)) removes it from SecureCredentialsStorage; if it was the selected key, selectedApiKeyId resets to null', async () => {
       mockStartupResolution.apiKeys.set({});
       mockSecureStorage.getCustomApiKeys.mockResolvedValue([
         {id: 'custom-to-delete', name: 'To Delete', key: 'to-delete-key'},
       ]);
       await service.selectApiKey('custom-to-delete');
-      expect(service.selectedApiKeyId$()).toBe('custom-to-delete');
+      expect(service.selectedApiKeyId()).toBe('custom-to-delete');
 
       await service.deleteCustomApiKey('custom-to-delete');
 
       expect(mockSecureStorage.deleteCustomApiKey).toHaveBeenCalledWith('custom-to-delete');
-      expect(service.selectedApiKeyId$()).toBeNull();
+      expect(service.selectedApiKeyId()).toBeNull();
     });
 
     it('deduplicates custom API keys whose IDs collide with static configuration key IDs in getAvailableApiKeys()', async () => {
       mockStartupResolution.apiKeys.set({
-        default: 'static-default',
-        prod: 'static-prod',
+        default: {apiKey: 'static-default'},
+        prod: {apiKey: 'static-prod'},
       });
       mockSecureStorage.getCustomApiKeys.mockResolvedValue([
         {id: 'default', name: 'Colliding Default', key: 'custom-default-key'},
@@ -381,7 +424,7 @@ describe('SettingsService', () => {
       expect(mockConfigProvider.setRuntimeApiKey).toHaveBeenCalledWith('updated-key');
     });
 
-    it('synchronizes configProvider when saving a custom API key while selectedApiKeyId$ is null (fallback)', async () => {
+    it('synchronizes configProvider when saving a custom API key while selectedApiKeyId is null (fallback)', async () => {
       await service.selectApiKey(null);
       mockSecureStorage.getCustomApiKeys.mockResolvedValue([
         {id: 'custom-1', name: 'My Custom', key: 'new-fallback-key'},
@@ -392,7 +435,7 @@ describe('SettingsService', () => {
       expect(mockConfigProvider.setRuntimeApiKey).toHaveBeenCalledWith('new-fallback-key');
     });
 
-    it('synchronizes configProvider when deleting a custom API key while selectedApiKeyId$ is null (fallback)', async () => {
+    it('synchronizes configProvider when deleting a custom API key while selectedApiKeyId is null (fallback)', async () => {
       await service.selectApiKey(null);
       mockSecureStorage.getCustomApiKeys.mockResolvedValue([
         {id: 'custom-2', name: 'Remaining Custom', key: 'remaining-key'},
