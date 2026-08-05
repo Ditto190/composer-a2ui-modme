@@ -294,6 +294,61 @@ describe('ChatPanel Gemini Dialogue Panel Integration', () => {
     expect(bubbles[0]).toBe('user note [draft]');
   });
 
+  it('ignores empty or whitespace-only messages without rendering empty bubbles', async () => {
+    const historyMocks: LlmMessage[] = [
+      {
+        role: MessageRole.USER,
+        content: 'valid instruction',
+      },
+      {
+        role: MessageRole.USER,
+        content: '',
+      },
+      {
+        role: MessageRole.USER,
+        content: '   ',
+      },
+      {
+        role: MessageRole.MODEL,
+        content: '',
+      },
+    ];
+
+    chatStateMock.chatHistory.set(historyMocks);
+    fixture.detectChanges();
+
+    const bubbles = await harness.getBubblesText();
+    expect(bubbles.length).toBe(1);
+    expect(bubbles[0]).toBe('valid instruction');
+  });
+
+  it('handles messages with undefined or missing content gracefully without throwing runtime errors', async () => {
+    const historyMocks: LlmMessage[] = [
+      {
+        role: MessageRole.USER,
+        content: undefined as unknown as string,
+        attachments: [
+          {name: 'photo.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,...'},
+        ],
+      },
+      {
+        role: MessageRole.USER,
+        content: undefined as unknown as string,
+      },
+      {
+        role: MessageRole.MODEL,
+        content: undefined as unknown as string,
+        thinking: 'thought process',
+      },
+    ];
+
+    chatStateMock.chatHistory.set(historyMocks);
+    expect(() => fixture.detectChanges()).not.toThrow();
+
+    const bubbles = await harness.getBubblesText();
+    expect(bubbles.length).toBe(2);
+  });
+
   it('classifies formatted multi-line JSON arrays as layout snapshots and calculates component counts', async () => {
     const formattedArray = JSON.stringify(
       [
@@ -869,6 +924,12 @@ describe('ChatPanel Gemini Dialogue Panel Integration', () => {
       const payload =
         '{"createSurface": {}}\n{corrupted\n{"updateComponents": {"components": [{}, {}]}}';
       expect(component.getComponentCount(payload)).toBe(3);
+    });
+
+    it('returns 0 when getComponentCount is called with empty or undefined text', () => {
+      const component = fixture.componentInstance;
+      expect(component.getComponentCount('')).toBe(0);
+      expect(component.getComponentCount(undefined)).toBe(0);
     });
   });
 });

@@ -150,10 +150,17 @@ export class ChatPanel {
   >(() => {
     return this.chatState
       .chatHistory()
-      .filter(m => m.role !== MessageRole.SYSTEM)
+      .filter(
+        m =>
+          m.role !== MessageRole.SYSTEM &&
+          (!!m.content?.trim() ||
+            (m.attachments && m.attachments.length > 0) ||
+            !!m.thinking ||
+            m.role === MessageRole.ERROR),
+      )
       .map(m => {
-        const isSnapshot = this.chatCleaner.isLayoutSnapshot(m.content);
-        if (isSnapshot) {
+        const isSnapshot = m.content ? this.chatCleaner.isLayoutSnapshot(m.content) : false;
+        if (isSnapshot && m.content) {
           return {
             ...m,
             isSnapshot,
@@ -253,7 +260,7 @@ export class ChatPanel {
    */
   protected getBubbleClass(message: LlmMessage): string {
     if (message.role === MessageRole.USER) {
-      return this.chatCleaner.isLayoutSnapshot(message.content)
+      return message.content && this.chatCleaner.isLayoutSnapshot(message.content)
         ? 'bubble-user bubble-layout'
         : 'bubble-user bubble-text';
     }
@@ -269,7 +276,10 @@ export class ChatPanel {
   /**
    * Counts the number of A2UI components declared in the given text.
    */
-  getComponentCount(text: string): number {
+  getComponentCount(text?: string): number {
+    if (!text) {
+      return 0;
+    }
     try {
       const trimmed = this.chatCleaner.cleanPayload(text);
       const parsedArray = tryParseJsonArray(trimmed);
