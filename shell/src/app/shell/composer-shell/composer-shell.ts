@@ -33,6 +33,14 @@ import {LocalStorageKey} from '../../storage/models/local-storage-keys';
 import {LocalStorageInteractions} from '../../storage/local-storage-interactions/local-storage-interactions';
 import {SessionStorageInteractions} from '../../storage/session-storage-interactions/session-storage-interactions';
 
+import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
+import {StartupResolution} from '../startup-resolution/startup-resolution';
+import {StateSync} from '../../chat/state-sync/state-sync';
+import {QueryParser} from '../query-parser/query-parser';
+
+/** Standard length for showing any snack bar notification. */
+const SNACK_BAR_DURATION_MS = 5000;
+
 /**
  * The primary layout container for the A2UI Composer.
  * Renders the permanent header bar, persistent navigation sidebar,
@@ -51,6 +59,7 @@ import {SessionStorageInteractions} from '../../storage/session-storage-interact
     RouterLink,
     RouterLinkActive,
     MatTooltipModule,
+    MatSnackBarModule,
   ],
   templateUrl: './composer-shell.ng.html',
   styleUrl: './composer-shell.scss',
@@ -63,6 +72,9 @@ export class ComposerShell {
   private readonly storage = inject(LocalStorageInteractions);
   private readonly sessionStorage = inject(SessionStorageInteractions);
   private readonly configProvider = inject(AppConfigProvider);
+  private readonly startupResolution = inject(StartupResolution);
+  private readonly stateSync = inject(StateSync);
+  private readonly snackBar = inject(MatSnackBar);
   private readonly document = inject(DOCUMENT);
 
   activeCatalogTitle = this.catalogManagement.activeCatalogTitle;
@@ -74,6 +86,15 @@ export class ComposerShell {
         this.document.body.classList.add('dark-theme');
       } else {
         this.document.body.classList.remove('dark-theme');
+      }
+    });
+
+    effect(() => {
+      const error = this.startupResolution.sharedA2uiError();
+      if (error) {
+        this.snackBar.open(`Unable to load shared design: ${error}`, 'Dismiss', {
+          duration: SNACK_BAR_DURATION_MS,
+        });
       }
     });
   }
@@ -100,6 +121,54 @@ export class ComposerShell {
   }
 
   /**
+   * Encodes active renderer URL and compressed A2UI active draft payload into shareable URL parameters
+   * and copies the result directly to the user's clipboard.
+   */
+  async shareDesign(): Promise<void> {
+    const href = this.document.defaultView?.location.href;
+    if (!href) {
+      return;
+    }
+    const clipboard = this.document.defaultView?.navigator?.clipboard;
+    if (!clipboard) {
+      this.snackBar.open('Clipboard API unavailable', 'Close', {duration: SNACK_BAR_DURATION_MS});
+      return;
+    }
+    const activeDraft = this.stateSync.activeDraft() || '';
+    try {
+      JSON.parse(activeDraft);
+    } catch {
+      this.snackBar.open('Cannot share design: invalid JSON syntax', 'Close', {
+        duration: SNACK_BAR_DURATION_MS,
+      });
+      return;
+    }
+    try {
+      const rendererUrl = this.startupResolution.resolvedUrl() || '';
+      const compressed = await QueryParser.encodeSharedPayload(activeDraft);
+      const shareUrl = new URL(href);
+      const hashParams = new URLSearchParams();
+      if (rendererUrl) {
+        hashParams.set('renderer', rendererUrl);
+      }
+      hashParams.set('a2ui', compressed);
+      shareUrl.hash = hashParams.toString();
+      shareUrl.search = '';
+
+      await clipboard.writeText(shareUrl.toString());
+      const lengthKb = (shareUrl.toString().length / 1024).toFixed(1);
+      this.snackBar.open(`Shareable link copied to clipboard (${lengthKb} KB)`, 'Close', {
+        duration: SNACK_BAR_DURATION_MS,
+      });
+    } catch (err) {
+      console.error('Failed to copy shareable link:', err);
+      this.snackBar.open('Failed to copy link to clipboard', 'Close', {
+        duration: SNACK_BAR_DURATION_MS,
+      });
+    }
+  }
+
+  /**
    * Flushes all local state caches (IndexedDB, localStorage) and reloads
    * the page to simulate a fresh hardware handshake connection.
    */
@@ -109,7 +178,12 @@ export class ComposerShell {
     this.storage.removeItem(LocalStorageKey.EDITOR_CACHE);
     this.sessionStorage.clear();
     if (this.document.defaultView) {
-      this.document.defaultView.location.reload();
+      const url = new URL(this.document.defaultView.location.href);
+      url.searchParams.delete('a2ui');
+      url.searchParams.delete('renderer');
+      url.searchParams.delete('rendererId');
+      url.hash = '';
+      this.document.defaultView.location.href = url.toString();
     }
     console.log('Session state cleared.');
   }
