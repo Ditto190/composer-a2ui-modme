@@ -245,27 +245,27 @@ export class MonacoEditor {
       {
         uri: 'a2ui-catalog-schema',
         fileMatch: [LAYOUT_MODEL_URI],
-        schema: layoutSchema,
+        schema: structuredClone(layoutSchema),
       },
       {
         uri: 'file:///common_types.json',
-        schema: COMMON_TYPES_SCHEMA,
+        schema: structuredClone(COMMON_TYPES_SCHEMA),
       },
       {
         uri: 'file:///catalog.json',
-        schema: BASIC_CATALOG_SCHEMA,
+        schema: structuredClone(BASIC_CATALOG_SCHEMA),
       },
       {
         uri: 'https://a2ui.org/specification/v0_9/common_types.json',
-        schema: COMMON_TYPES_SCHEMA,
+        schema: structuredClone(COMMON_TYPES_SCHEMA),
       },
       {
         uri: 'https://a2ui.org/specification/v0_9/catalog.json',
-        schema: BASIC_CATALOG_SCHEMA,
+        schema: structuredClone(BASIC_CATALOG_SCHEMA),
       },
       {
         uri: 'https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json',
-        schema: BASIC_CATALOG_SCHEMA,
+        schema: structuredClone(BASIC_CATALOG_SCHEMA),
       },
     ];
   }
