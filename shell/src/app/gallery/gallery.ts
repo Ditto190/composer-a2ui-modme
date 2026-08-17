@@ -84,6 +84,13 @@ export class Gallery implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Constructs the A2UI layout and data model command payload.
+   *
+   * Note: Properties explicitly declared in `declare interface` definitions (like `RenderA2uiItem`,
+   * `CreateSurfaceDetails`, `UpdateComponentsDetails`, `UpdateDataModelDetails`) are emitted in externs
+   * by tsickle, so JSCompiler (Closure Compiler) preserves their names without needing bracket notation.
+   */
   private buildA2UIPayload(preset: ComponentUsage, catalogId: string): RenderA2uiItem[] {
     const payload: RenderA2uiItem[] = [
       {
@@ -230,9 +237,12 @@ export class Gallery implements OnInit, OnDestroy {
         {
           id: 'root',
           component: columnKey,
-          align: 'center',
-          justify: 'center',
-          children: ['target'],
+          // Custom/dynamic component schema properties not declared on externed interfaces
+          // (such as A2uiComponentInstance) must use quoted keys to prevent Closure Compiler
+          // from renaming them during optimization.
+          ['align']: 'center',
+          ['justify']: 'center',
+          ['children']: ['target'],
         },
         ...normalizedComponents,
       ];
