@@ -18,7 +18,7 @@ import {ComponentFixture, TestBed} from '@angular/core/testing';
 import {RenderedFrame} from './rendered-frame';
 import {TestbedHarnessEnvironment} from '@angular/cdk/testing/testbed';
 import {RenderedFrameHarness} from './test/rendered-frame.harness';
-import {describe, it, expect, beforeEach, vi} from 'vitest';
+import {describe, it, afterEach, expect, beforeEach, vi} from 'vitest';
 import {StartupResolution} from '../../shell/startup-resolution/startup-resolution';
 import {HostCommunication} from '../../shell/host-communication/host-communication';
 import {
@@ -94,6 +94,10 @@ describe('RenderedFrame Live Preview Viewport', () => {
     harness = await TestbedHarnessEnvironment.harnessForFixture(fixture, RenderedFrameHarness);
   });
 
+  afterEach(() => async () => {
+    vi.unstubAllGlobals();
+  });
+
   it('renders the iframe securely bound to the active renderer URL', async () => {
     expect(await harness.hasIframe()).toBe(true);
     expect(await harness.getIframeSrc()).toBe(
@@ -156,6 +160,107 @@ describe('RenderedFrame Live Preview Viewport', () => {
     expect(await relativeHarness.getIframeSrc()).toBe(
       'http://localhost:3000/renderer?origin=http%3A%2F%2Flocalhost%3A3000&theme=light',
     );
+  });
+
+  it('appends all ancestor origins and base origin to the renderer URL query params', async () => {
+    fixture.destroy();
+    vi.stubGlobal('location', {
+      origin: 'http://localhost:3000',
+      ancestorOrigins: ['https://proxy.googlers.com', 'https://jetski.corp.google.com'],
+    });
+
+    resolvedUrlSignal.set('/renderer');
+    const localFixture = TestBed.createComponent(RenderedFrame);
+    localFixture.detectChanges();
+    const localHarness = await TestbedHarnessEnvironment.harnessForFixture(
+      localFixture,
+      RenderedFrameHarness,
+    );
+
+    const src = await localHarness.getIframeSrc();
+    expect(src).toContain('origin=http%3A%2F%2Flocalhost%3A3000');
+    expect(src).toContain('origin=https%3A%2F%2Fproxy.googlers.com');
+    expect(src).toContain('origin=https%3A%2F%2Fjetski.corp.google.com');
+  });
+
+  it('deduplicates ancestor origins matching the base origin or each other', async () => {
+    fixture.destroy();
+    vi.stubGlobal('location', {
+      origin: 'http://localhost:3000',
+      ancestorOrigins: [
+        'http://localhost:3000',
+        'https://proxy.googlers.com',
+        'https://proxy.googlers.com',
+      ],
+    });
+
+    resolvedUrlSignal.set('/renderer');
+    const localFixture = TestBed.createComponent(RenderedFrame);
+    localFixture.detectChanges();
+    const localHarness = await TestbedHarnessEnvironment.harnessForFixture(
+      localFixture,
+      RenderedFrameHarness,
+    );
+
+    const src = await localHarness.getIframeSrc();
+    expect(src).toContain('origin=http%3A%2F%2Flocalhost%3A3000');
+    expect(src).toContain('origin=https%3A%2F%2Fproxy.googlers.com');
+
+    // Validate deduplication
+    expect(src!.match(/origin=http%3A%2F%2Flocalhost%3A3000/g)?.length).toBe(1);
+    expect(src!.match(/origin=https%3A%2F%2Fproxy\.googlers\.com/g)?.length).toBe(1);
+  });
+
+  it('handles environments where location.ancestorOrigins is undefined (e.g. Firefox)', async () => {
+    fixture.destroy();
+    vi.stubGlobal('location', {
+      origin: 'http://localhost:3000',
+      // ancestorOrigins omitted to simulate Firefox
+    });
+
+    resolvedUrlSignal.set('/renderer');
+    const localFixture = TestBed.createComponent(RenderedFrame);
+    localFixture.detectChanges();
+    const localHarness = await TestbedHarnessEnvironment.harnessForFixture(
+      localFixture,
+      RenderedFrameHarness,
+    );
+
+    const src = await localHarness.getIframeSrc();
+    expect(src).toContain('origin=http%3A%2F%2Flocalhost%3A3000');
+    expect(src!.match(/origin=/g)?.length).toBe(1);
+  });
+
+  it('processes absolute URLs correctly in SSR environments', async () => {
+    fixture.destroy();
+    vi.stubGlobal('location', undefined);
+
+    resolvedUrlSignal.set('http://localhost:3000/renderer');
+    const localFixture = TestBed.createComponent(RenderedFrame);
+    localFixture.detectChanges();
+    const localHarness = await TestbedHarnessEnvironment.harnessForFixture(
+      localFixture,
+      RenderedFrameHarness,
+    );
+
+    const src = await localHarness.getIframeSrc();
+    // In SSR, no origin is appended if location is undefined
+    expect(src).toBe('http://localhost:3000/renderer?theme=light');
+  });
+
+  it('returns null and hides iframe when rendering a relative URL in SSR environments', async () => {
+    fixture.destroy();
+    vi.stubGlobal('location', undefined);
+
+    resolvedUrlSignal.set('/renderer');
+    const localFixture = TestBed.createComponent(RenderedFrame);
+    localFixture.detectChanges();
+    const localHarness = await TestbedHarnessEnvironment.harnessForFixture(
+      localFixture,
+      RenderedFrameHarness,
+    );
+
+    expect(await localHarness.hasIframe()).toBe(false);
   });
 
   it('visually locks manual preview visual click dispatches during active model stream turns', async () => {
