@@ -15,8 +15,10 @@
  */
 
 import {DOCUMENT} from '@angular/common';
+import {TrackEventDirective} from '../../usage-tracking/track-event.directive';
 import {Component, computed, effect, inject, signal} from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
+import {ShareService} from '../share/share.service';
 import {MatIconModule} from '@angular/material/icon';
 import {MatListModule} from '@angular/material/list';
 import {MatSidenavModule} from '@angular/material/sidenav';
@@ -35,11 +37,7 @@ import {IndexedDbStorage} from '../../storage/indexed-db-storage/indexed-db-stor
 import {LocalStorageInteractions} from '../../storage/local-storage-interactions/local-storage-interactions';
 import {LocalStorageKey} from '../../storage/models/local-storage-keys';
 import {SessionStorageInteractions} from '../../storage/session-storage-interactions/session-storage-interactions';
-import {
-  ShareTrackingStatus,
-  UsageTrackingService,
-} from '../../usage-tracking/usage-tracking.service';
-import {QueryParser} from '../query-parser/query-parser';
+import {UsageTrackingService} from '../../usage-tracking/usage-tracking.service';
 import {StartupResolution} from '../startup-resolution/startup-resolution';
 import {StartupConfigStateService} from '../startup-resolution/state/startup-config-state.service';
 
@@ -65,6 +63,7 @@ const SNACK_BAR_DURATION_MS = 5000;
     RouterLinkActive,
     MatTooltipModule,
     MatSnackBarModule,
+    TrackEventDirective,
   ],
   templateUrl: './composer-shell.ng.html',
   styleUrl: './composer-shell.scss',
@@ -81,9 +80,11 @@ export class ComposerShell {
   private readonly stateSync = inject(StateSync);
   private readonly chatCoordinator = inject(ChatCoordinator);
   private readonly startupConfigState = inject(StartupConfigStateService);
+  protected readonly currentTurnIndex = this.chatCoordinator.currentTurnIndex;
   private readonly usageTrackingService = inject(UsageTrackingService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly document = inject(DOCUMENT);
+  private readonly shareService = inject(ShareService);
 
   activeCatalogTitle = this.catalogManagement.activeCatalogTitle;
   activeCatalogDescription = this.catalogManagement.activeCatalogDescription;
@@ -133,63 +134,7 @@ export class ComposerShell {
    * and copies the result directly to the user's clipboard.
    */
   async shareDesign(): Promise<void> {
-    const href = this.document.defaultView?.location.href;
-    if (!href) {
-      return;
-    }
-    const clipboard = this.document.defaultView?.navigator?.clipboard;
-    if (!clipboard) {
-      this.usageTrackingService.trackShareDesign({
-        status: ShareTrackingStatus.CLIPBOARD_UNAVAILABLE,
-        compressedLengthChars: 0,
-      });
-      this.snackBar.open('Clipboard API unavailable', 'Close', {duration: SNACK_BAR_DURATION_MS});
-      return;
-    }
-    const activeDraft = this.stateSync.activeDraft() || '';
-    try {
-      JSON.parse(activeDraft);
-    } catch {
-      this.usageTrackingService.trackShareDesign({
-        status: ShareTrackingStatus.INVALID_JSON,
-        compressedLengthChars: 0,
-      });
-      this.snackBar.open('Cannot share design: invalid JSON syntax', 'Close', {
-        duration: SNACK_BAR_DURATION_MS,
-      });
-      return;
-    }
-    try {
-      const rendererUrl = this.startupConfigState.resolvedUrl() || '';
-      const compressed = await QueryParser.encodeSharedPayload(activeDraft);
-      const shareUrl = new URL(href);
-      const hashParams = new URLSearchParams();
-      if (rendererUrl) {
-        hashParams.set('renderer', rendererUrl);
-      }
-      hashParams.set('a2ui', compressed);
-      shareUrl.hash = hashParams.toString();
-      shareUrl.search = '';
-
-      await clipboard.writeText(shareUrl.toString());
-      this.usageTrackingService.trackShareDesign({
-        status: ShareTrackingStatus.SUCCESS,
-        compressedLengthChars: compressed.length,
-      });
-      const lengthKb = (shareUrl.toString().length / 1024).toFixed(1);
-      this.snackBar.open(`Shareable link copied to clipboard (${lengthKb} KB)`, 'Close', {
-        duration: SNACK_BAR_DURATION_MS,
-      });
-    } catch (err) {
-      this.usageTrackingService.trackShareDesign({
-        status: ShareTrackingStatus.FAILURE,
-        compressedLengthChars: 0,
-      });
-      console.error('Failed to copy shareable link:', err);
-      this.snackBar.open('Failed to copy link to clipboard', 'Close', {
-        duration: SNACK_BAR_DURATION_MS,
-      });
-    }
+    await this.shareService.shareDesign();
   }
 
   /**

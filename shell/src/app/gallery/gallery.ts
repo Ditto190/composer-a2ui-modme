@@ -14,16 +14,10 @@
  * limitations under the License.
  */
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  effect,
-  inject,
-  OnInit,
-  OnDestroy,
-} from '@angular/core';
+import {TrackEventDirective} from '../usage-tracking/track-event.directive';
+import {Component, computed, effect, inject, OnInit, OnDestroy} from '@angular/core';
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
+import {Clipboard} from '@angular/cdk/clipboard';
 import {filter} from 'rxjs/operators';
 import {JsonPipe} from '@angular/common';
 import {MatSidenavModule} from '@angular/material/sidenav';
@@ -49,6 +43,7 @@ import {UsageTrackingService} from '../usage-tracking/usage-tracking.service';
   selector: 'a2ui-composer-gallery',
   standalone: true,
   imports: [
+    TrackEventDirective,
     JsonPipe,
     MatSidenavModule,
     MatListModule,
@@ -61,13 +56,13 @@ import {UsageTrackingService} from '../usage-tracking/usage-tracking.service';
   ],
   templateUrl: './gallery.ng.html',
   styleUrl: './gallery.scss',
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Gallery implements OnInit, OnDestroy {
   private readonly catalogService = inject(GalleryCatalog);
   protected readonly catalogManagement = inject(CatalogManagement);
   private readonly hostCommunication = inject(HostCommunication);
   private readonly usageTrackingService = inject(UsageTrackingService);
+  private readonly clipboard = inject(Clipboard);
 
   constructor() {
     this.hostCommunication.messageStream$
@@ -198,10 +193,6 @@ export class Gallery implements OnInit, OnDestroy {
    */
   protected selectComponent(key: string | null): void {
     this.catalogService.selectComponent(key);
-    if (key) {
-      const category = this.componentsList().find(c => c.components.includes(key))!.category;
-      this.usageTrackingService.trackGalleryComponentSelect({componentKey: key, category});
-    }
   }
 
   private getComponentsPayload(
@@ -277,21 +268,14 @@ export class Gallery implements OnInit, OnDestroy {
       const commands = this.buildA2UIPayload(preset, catalogId);
       const payload = formatJson(commands);
 
-      if (!navigator.clipboard) {
-        console.error('Clipboard API is not available in this environment.');
-        return;
-      }
-
-      navigator.clipboard
-        .writeText(payload)
-        .then(() => {
-          this.usageTrackingService.trackGalleryCopyUsage({
-            componentKey: this.selectedComponentKey() || '',
-          });
-        })
-        .catch(err => {
-          console.error('Failed to copy A2UI component usage to clipboard: ', err);
+      const successful = this.clipboard.copy(payload);
+      if (successful) {
+        this.usageTrackingService.trackGalleryCopyUsage({
+          componentKey: this.selectedComponentKey() || '',
         });
+      } else {
+        console.error('Failed to copy A2UI component usage to clipboard.');
+      }
     } catch (err) {
       console.error('Failed to parse or format A2UI usage payload: ', err);
     }

@@ -24,6 +24,8 @@
             mat-list-item
             [activated]="comp === selectedComponentKey()"
             (click)="selectComponent(comp)"
+            a2uiComposerTrackEvent="trackGalleryComponentSelect"
+            [a2uiComposerTrackParams]="{componentKey: comp, category: group.category}"
             class="component-nav-item"
           >
             <span matListItemTitle>{{ comp }}</span>
