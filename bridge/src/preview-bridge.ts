@@ -13,12 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 import {
   setupInstrumentationOverrides,
   teardownInstrumentationOverrides,
 } from './instrumentation-overrides';
 
 import type {A2uiMessage} from '@a2ui/web_core/v0_9';
+
+import {DomainOriginVerificationService} from './domain-origin-verification';
 
 import {
   PreviewBridgeMessageType,
@@ -154,11 +157,17 @@ export class PreviewBridge {
   /** Tracks the currently applied theme in the DOM to avoid redundant DOM mutations. */
   private currentAppliedTheme?: ThemePreference;
 
+  private readonly cachedParentOrigin: string | null = null;
+
   /**
    * Initializes a new PreviewBridge instance.
    * Sets up the global window message listener and applies initial theme from URL if present.
    */
   constructor() {
+    if (typeof window !== 'undefined' && window.location && window.location.search) {
+      const params = new URLSearchParams(window.location.search);
+      this.cachedParentOrigin = params.get('origin');
+    }
     this.initMessageListener();
     setupInstrumentationOverrides(this);
     this.initThemeFromUrl();
@@ -299,6 +308,16 @@ export class PreviewBridge {
     this.activeConnections.clear();
   }
 
+  private resolveExpectedParentOrigin(): string {
+    if (typeof window === 'undefined') {
+      return '*';
+    }
+    if (this.cachedParentOrigin && /^https?:\/\/[^/]+$/.test(this.cachedParentOrigin)) {
+      return this.cachedParentOrigin;
+    }
+    return window.location.origin || '*';
+  }
+
   /**
    * Safe cross-origin messenger that transmits a bridge message upward to the parent host window.
    * Incorporates environment checks to prevent errors in non-browser contexts and permits
@@ -307,14 +326,17 @@ export class PreviewBridge {
    * @param message The structured bridge message package containing type and payload.
    */
   sendMessage(message: BridgeMessage): void {
-    if (
-      typeof window !== 'undefined' &&
-      window.parent &&
-      (window.parent !== window ||
-        (globalThis as unknown as {process?: {env?: {NODE_ENV?: string}}}).process?.env
-          ?.NODE_ENV === 'test')
-    ) {
-      window.parent.postMessage(message, '*');
+    if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+      const targetOrigin = this.resolveExpectedParentOrigin();
+      try {
+        window.parent.postMessage(message, targetOrigin);
+      } catch (error) {
+        if (error instanceof DOMException) {
+          console.error('[PreviewBridge] Blocked cross-origin postMessage:', error);
+        } else {
+          throw error;
+        }
+      }
     }
   }
 
@@ -344,7 +366,10 @@ export class PreviewBridge {
    * @param event The raw window message event.
    */
   private readonly messageListener = (event: MessageEvent) => {
-    if (event.source !== window.parent && event.source !== window) return;
+    if (
+      !DomainOriginVerificationService.verifyStrictOrigin(event.origin, event.source, window.parent)
+    )
+      return;
 
     const data = event.data as BridgeMessage;
     if (!data || typeof data !== 'object' || !data.type) return;

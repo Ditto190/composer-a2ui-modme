@@ -185,6 +185,10 @@ export class ChatCoordinator {
     attachments: Attachment[] = [],
     options?: {promptId?: string; promptTurnIndex?: number; retryOfPromptId?: string},
   ): Promise<void> {
+    if (this.chatState.isProgrammaticStreamActive()) {
+      console.warn('[ChatCoordinator] Blocked submitPrompt: programmatic stream is active.');
+      return;
+    }
     const trimmed = prompt.trim();
     if (!trimmed && attachments.length === 0) return;
 
@@ -329,21 +333,11 @@ export class ChatCoordinator {
         payload: parsedBlocks,
       };
 
-      // Temporary override console.error to capture validation failures
-      const originalConsoleError = console.error;
       const validationErrors: string[] = [];
-      console.error = (...args: unknown[]) => {
-        validationErrors.push(
-          args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '),
-        );
-      };
-
-      let isValidEnvelope = false;
-      try {
-        isValidEnvelope = CrossFrameValidator.validateOutgoingMessage(mockEnvMsg);
-      } finally {
-        console.error = originalConsoleError;
-      }
+      const isValidEnvelope = CrossFrameValidator.validateOutgoingMessage(
+        mockEnvMsg,
+        validationErrors,
+      );
 
       if (!isValidEnvelope) {
         throw new Error(

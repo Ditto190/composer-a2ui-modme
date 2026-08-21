@@ -283,23 +283,6 @@ describe('ComposerWorkspace Dashboard', () => {
       expect(errorsPanel?.title).toBe('Errors');
     });
 
-    it('adds and removes the mockRules panel when showMockRules signal changes', async () => {
-      fixture.componentInstance.showMockRules.set(true);
-      fixture.detectChanges();
-      await fixture.whenStable();
-
-      const manager = fixture.debugElement.injector.get(ComposerDockview);
-      const mockRulesPanel = manager.api.getGroupPanel(ComposerPanelId.MockRules);
-      expect(mockRulesPanel).toBeDefined();
-
-      fixture.componentInstance.showMockRules.set(false);
-      fixture.detectChanges();
-      await fixture.whenStable();
-
-      const removedPanel = manager.api.getGroupPanel(ComposerPanelId.MockRules);
-      expect(removedPanel).toBeUndefined();
-    });
-
     it('updates dockview options with dark theme class dynamically', async () => {
       const configProvider = TestBed.inject(AppConfigProvider) as unknown as MockAppConfigProvider;
       configProvider.themePreference.set(ThemePreference.DARK);
@@ -327,6 +310,30 @@ describe('ComposerWorkspace Dashboard', () => {
       await newFixture.whenStable();
 
       expect(apiSpy).toHaveBeenCalled();
+      apiSpy.mockRestore();
+    });
+
+    it('sanitizes dockview layout from localStorage to prevent ghost panels', async () => {
+      const mockLayout = {
+        grid: {root: {type: 'branch'}},
+        panels: {
+          [ComposerPanelId.Chat]: {id: ComposerPanelId.Chat, component: ComposerPanelId.Chat},
+          mockRules: {id: 'mockRules', component: 'mockRules'},
+          invalidPanel: {id: 'invalidPanel', component: ComposerPanelId.Chat},
+        },
+      };
+      vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(JSON.stringify(mockLayout));
+      const apiSpy = vi.spyOn(DockviewComponent.prototype, 'fromJSON').mockImplementation(() => {});
+
+      const newFixture = TestBed.createComponent(ComposerWorkspace);
+      newFixture.detectChanges();
+      await newFixture.whenStable();
+
+      expect(apiSpy).toHaveBeenCalled();
+      const passedLayout = apiSpy.mock.calls[0][0];
+      expect(passedLayout.panels[ComposerPanelId.Chat]).toBeDefined();
+      expect(passedLayout.panels['mockRules']).toBeUndefined();
+      expect(passedLayout.panels['invalidPanel']).toBeUndefined();
       apiSpy.mockRestore();
     });
 

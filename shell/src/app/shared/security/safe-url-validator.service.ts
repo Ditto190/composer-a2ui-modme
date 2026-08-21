@@ -14,8 +14,23 @@
  * limitations under the License.
  */
 
-import {ComponentHarness} from '@angular/cdk/testing';
+import {Injectable} from '@angular/core';
 
-export class MockRulesHarness extends ComponentHarness {
-  static hostSelector = 'a2ui-composer-mock-rules';
+@Injectable({providedIn: 'root'})
+export class SafeUrlValidatorService {
+  /**
+   * Validates that a string is a valid URL with an http or https protocol.
+   * Prevents javascript:, data:, and other potentially dangerous schemes.
+   */
+  isValidHttpUrl(url: string | null | undefined): boolean {
+    if (!url) {
+      return false;
+    }
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }
 }

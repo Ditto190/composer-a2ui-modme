@@ -38,8 +38,6 @@ import {
 import {COMMON_TYPES_SCHEMA} from '../../gallery/schema/common-types-schema';
 import {BASIC_CATALOG_SCHEMA} from '../../gallery/schema/basic-catalog-schema';
 
-const LAYOUT_MODEL_URI = 'a2ui://layout.json';
-
 /**
  * A standalone Angular component that wraps the Monaco Editor.
  *
@@ -48,6 +46,8 @@ const LAYOUT_MODEL_URI = 'a2ui://layout.json';
  * (dark/light mode) and integrates with the active A2UI catalog to provide
  * real-time schema validation and autocompletion for component properties.
  */
+const LAYOUT_MODEL_URI = 'a2ui://layout.json';
+
 @Component({
   selector: 'a2ui-composer-monaco-editor',
   standalone: true,
@@ -181,6 +181,10 @@ export class MonacoEditor {
     this.destroyRef.onDestroy(() => {
       destroyed = true;
       if (this.editor) {
+        const model = this.editor.getModel();
+        if (model) {
+          model.dispose();
+        }
         this.editor.dispose();
       }
       overflowWidgetsDomNode?.remove();
@@ -196,12 +200,7 @@ export class MonacoEditor {
         this.monacoInstance.set(monacoInstance);
 
         const modelUri = monacoInstance.Uri.parse(LAYOUT_MODEL_URI);
-        let model = monacoInstance.editor.getModel(modelUri);
-        if (model) {
-          model.setValue(this.value());
-        } else {
-          model = monacoInstance.editor.createModel(this.value(), 'json', modelUri);
-        }
+        const model = monacoInstance.editor.createModel(this.value(), 'json', modelUri);
 
         const editor = monacoInstance.editor.create(this.editorContainer().nativeElement, {
           model,

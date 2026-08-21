@@ -222,6 +222,13 @@ describe('ChatCoordinator Pipeline & State Integration', () => {
   });
 
   /* Pipeline submit and Lockout assertions */
+  it('ignores submitPrompt when programmatic stream is actively locked', async () => {
+    chatStateMock.setProgrammaticStreamActive(true);
+    await service.submitPrompt('Test locked');
+    expect(llmClientMock.chatStream).not.toHaveBeenCalled();
+    expect(chatStateMock.chatHistory().length).toBe(0);
+  });
+
   it('triggers prompt stream turns locking panel and commits', async () => {
     expect(service.pipelineStatus()).toBe(PipelineStatus.IDLE);
     expect(service.isProgrammaticStreamActive()).toBe(false);
@@ -700,6 +707,35 @@ describe('ChatCoordinator Pipeline & State Integration', () => {
       await service.submitPrompt('Corrupted JSONL test prompt');
 
       expect(service.pipelineStatus()).toBe(PipelineStatus.FAILED);
+    });
+
+    it('handles schema validation failures with detailed error messages', async () => {
+      const invalidEnvelopeJsonl =
+        '{"version": "v0.8", "createSurface": {"surfaceId": "s1", "catalogId": "test"}}';
+
+      llmClientMock.chatStream = vi.fn(async (): Promise<LlmStreamResponse> => {
+        const contentStream = createMockStream([invalidEnvelopeJsonl]);
+        return {contentStream, complete: Promise.resolve(invalidEnvelopeJsonl)};
+      });
+
+      catalogManagementMock.activeCatalog.set({
+        catalogId: 'test',
+        components: {},
+      });
+
+      await service.submitPrompt('Invalid version envelope prompt');
+
+      expect(service.pipelineStatus()).toBe(PipelineStatus.FAILED);
+      expect(service.isProgrammaticStreamActive()).toBe(false);
+
+      const history = chatStateMock.chatHistory();
+      expect(history.length).toBe(2);
+      expect(history[1].role).toBe(MessageRole.ERROR);
+      expect(history[1].errorTitle).toBe('Validation Failure');
+      expect(history[1].errorDetails).toContain('Outgoing message envelope validation failed');
+      expect(history[1].errorDetails).toContain(
+        'Malformed payload for RENDER_A2UI: array items must specify version "v0.9".',
+      );
     });
 
     it('parses layout payloads wrapped in ```jsonl code blocks', async () => {
