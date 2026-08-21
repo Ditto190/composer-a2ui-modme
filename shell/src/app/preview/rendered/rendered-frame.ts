@@ -103,7 +103,7 @@ export class RenderedFrame {
   constructor() {
     effect(() => {
       const ref = this.iframeRef();
-      this.hostCommunication.registerIframe(ref?.nativeElement || null);
+      this.hostCommunication.registerIframe(ref?.nativeElement ?? null);
     });
 
     effect(() => {

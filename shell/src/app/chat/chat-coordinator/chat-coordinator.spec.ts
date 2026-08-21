@@ -51,7 +51,6 @@ class MockAppConfigProvider {
   readonly envMode = signal(EnvMode.STANDALONE);
   readonly authType = signal(AuthType.THIRD_PARTY);
   readonly themePreference = signal<ThemePreference>(ThemePreference.LIGHT);
-  readonly includeScreenshot = signal<boolean>(true);
   setRendererUrl = vi.fn((url: string) => {
     this.rendererUrl.set(url);
   });
@@ -61,9 +60,6 @@ class MockAppConfigProvider {
   setForcedAuthMode = vi.fn();
   setThemePreference = vi.fn((theme: ThemePreference) => {
     this.themePreference.set(theme);
-  });
-  setIncludeScreenshot = vi.fn((include: boolean) => {
-    this.includeScreenshot.set(include);
   });
   flushConfig = vi.fn();
 }
@@ -87,6 +83,7 @@ class MockChatState {
   setProgrammaticStreamActive(active: boolean) {
     this.isProgrammaticStreamActive.set(active);
   }
+  pushAppError = vi.fn();
   addRawLlmLog(type: LlmLogType, payload: unknown): void {
     const entry: LlmLogEntry = {type, timestamp: Date.now(), payload};
     this.latestLlmLog.set(entry);
@@ -732,6 +729,42 @@ I should generate a text field.
       expect(lastMessage.content).not.toContain('```jsonlines');
 
       expect(stateSyncMock.commitLayoutFromLlm).toHaveBeenCalled();
+    });
+
+    it('throws an error for empty LLM response, sets FAILED status and aborts layout commit', async () => {
+      catalogManagementMock.activeCatalog.set({catalogId: 'test', components: {}});
+      const rawText = `
+<thinking>
+I have no idea what to do, I'll output nothing.
+</thinking>
+      `;
+
+      llmClientMock.chatStream = vi.fn(async (): Promise<LlmStreamResponse> => {
+        const contentStream = createMockStream([rawText]);
+        return {contentStream, complete: Promise.resolve(rawText), cancel: vi.fn()};
+      });
+
+      const commitSpy = vi.spyOn(stateSyncMock, 'commitLayoutFromLlm');
+      const pipelineSpy = vi.spyOn(chatStateMock, 'setPipelineStatus');
+      const updateHistorySpy = vi.spyOn(chatStateMock, 'updateChatHistory');
+
+      await service.submitPrompt('Do nothing');
+
+      expect(commitSpy).not.toHaveBeenCalled();
+      expect(pipelineSpy).toHaveBeenCalledWith(PipelineStatus.FAILED);
+
+      // Verify an ERROR bubble was pushed
+      const historyUpdateArg =
+        updateHistorySpy.mock.calls[updateHistorySpy.mock.calls.length - 1][0];
+      const resultHistory = historyUpdateArg([
+        {role: MessageRole.MODEL, content: ''} as unknown as LlmMessage,
+      ]);
+      const lastMsg = resultHistory[resultHistory.length - 1];
+
+      expect(lastMsg.role).toBe(MessageRole.ERROR);
+      expect(lastMsg.content).toContain(
+        'No valid A2UI JSON layout command block could be parsed or recovered',
+      );
     });
   });
 
