@@ -17,11 +17,12 @@
 import {TestBed} from '@angular/core/testing';
 import {signal, WritableSignal} from '@angular/core';
 import {SettingsService} from './settings.service';
+import {StartupResolution} from '../../shell/startup-resolution/startup-resolution';
 import {
+  StartupConfigStateService,
   ApiKeyConfig,
   RendererConfig,
-  StartupResolution,
-} from '../../shell/startup-resolution/startup-resolution';
+} from '../../shell/startup-resolution/state/startup-config-state.service';
 import {AppConfigProvider} from '../app-config-provider/app-config-provider';
 import {SecureCredentialsStorage} from '../../storage/secure-credentials-storage/secure-credentials-storage';
 import {LocalStorageInteractions} from '../../storage/local-storage-interactions/local-storage-interactions';
@@ -78,6 +79,7 @@ describe('SettingsService', () => {
       renderers: signal(sampleRenderers),
       selectedRendererId: signal(null),
       activeRenderer: signal(null),
+      setRenderers: vi.fn(),
       apiKeys: signal({}),
       isThirdPartyEnvironment: vi.fn().mockReturnValue(true),
       setSelectedRendererId: vi.fn((id: string | null) => {
@@ -113,6 +115,7 @@ describe('SettingsService', () => {
         SettingsService,
         LocalStorageInteractions,
         {provide: StartupResolution, useValue: mockStartupResolution},
+        {provide: StartupConfigStateService, useValue: mockStartupResolution},
         {provide: AppConfigProvider, useValue: mockConfigProvider},
         {provide: SecureCredentialsStorage, useValue: mockSecureStorage},
         {provide: UsageTrackingService, useClass: NoopUsageTrackingService},

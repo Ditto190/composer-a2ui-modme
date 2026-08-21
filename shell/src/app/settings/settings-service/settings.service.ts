@@ -15,11 +15,12 @@
  */
 
 import {Injectable, Signal, computed, inject, signal} from '@angular/core';
+import {StartupResolution} from '../../shell/startup-resolution/startup-resolution';
 import {
+  StartupConfigStateService,
   ApiKeyConfig,
   RendererConfig,
-  StartupResolution,
-} from '../../shell/startup-resolution/startup-resolution';
+} from '../../shell/startup-resolution/state/startup-config-state.service';
 import {AppConfigProvider} from '../app-config-provider/app-config-provider';
 import {SecureCredentialsStorage} from '../../storage/secure-credentials-storage/secure-credentials-storage';
 import {LocalStorageInteractions} from '../../storage/local-storage-interactions/local-storage-interactions';
@@ -62,6 +63,7 @@ export declare interface RendererOption extends CustomRendererEntry {
 })
 export class SettingsService {
   private readonly startupResolution = inject(StartupResolution);
+  private readonly startupConfigState = inject(StartupConfigStateService);
   private readonly configProvider = inject(AppConfigProvider);
   private readonly secureCredentialsStorage = inject(SecureCredentialsStorage);
   private readonly localStorageInteractions = inject(LocalStorageInteractions);
@@ -72,11 +74,11 @@ export class SettingsService {
   );
 
   readonly selectedRendererId: Signal<string | null> = computed(() =>
-    this.startupResolution.selectedRendererId(),
+    this.startupConfigState.selectedRendererId(),
   );
 
   readonly activeRenderer: Signal<RendererConfig | null> = computed(() =>
-    this.startupResolution.activeRenderer(),
+    this.startupConfigState.activeRenderer(),
   );
 
   /**
@@ -132,7 +134,7 @@ export class SettingsService {
   readonly selectedApiKeyId: Signal<string | null> = computed(() => {
     const id = this._selectedApiKeyId();
     if (id) return id;
-    const staticKeys = this.startupResolution.apiKeys() || {};
+    const staticKeys = this.startupConfigState.apiKeys() || {};
     return staticKeys['default'] !== undefined ? 'default' : null;
   });
 
@@ -141,7 +143,7 @@ export class SettingsService {
   readonly effectiveApiKey: Signal<string> = this._effectiveApiKey.asReadonly();
 
   private getStaticApiKeys(): Record<string, ApiKeyConfig> {
-    return this.startupResolution.apiKeys() || {};
+    return this.startupConfigState.apiKeys() || {};
   }
 
   /**
@@ -269,7 +271,7 @@ export class SettingsService {
   }
 
   private getStaticRenderersMap(): Record<string, RendererConfig> {
-    return this.startupResolution.renderers() || {};
+    return this.startupConfigState.renderers() || {};
   }
 
   /**
@@ -370,6 +372,11 @@ export class SettingsService {
       this.usageTrackingService.trackRendererAdd({rendererId: id});
     }
     this.localStorageInteractions.setItem(LocalStorageKey.CUSTOM_RENDERERS, JSON.stringify(list));
+
+    // Keep StartupConfigStateService in sync so activeRenderer can resolve it
+    const updatedRenderers = {...this.startupConfigState.renderers()};
+    updatedRenderers[id] = {id, name, rendererUrl};
+    this.startupConfigState.setRenderers(updatedRenderers);
   }
 
   /**
@@ -380,6 +387,11 @@ export class SettingsService {
     this.usageTrackingService.trackRendererDelete({rendererId: id});
     const list = this.getCustomRenderers().filter(item => item.id !== id);
     this.localStorageInteractions.setItem(LocalStorageKey.CUSTOM_RENDERERS, JSON.stringify(list));
+
+    const updatedRenderers = {...this.startupConfigState.renderers()};
+    delete updatedRenderers[id];
+    this.startupConfigState.setRenderers(updatedRenderers);
+
     if (this.selectedRendererId() === id) {
       this.localStorageInteractions.removeItem(LocalStorageKey.SELECTED_RENDERER);
       void this.selectRenderer(null);

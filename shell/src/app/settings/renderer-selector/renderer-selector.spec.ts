@@ -391,7 +391,7 @@ describe('RendererSelectorComponent & AddRendererDialogComponent', () => {
 
   it('displays a disabled empty-state option when renderers list is empty', async () => {
     mockSettingsService.getRenderers.mockReturnValue([]);
-    component.refreshRenderers();
+    component.refreshItems();
     fixture.detectChanges();
 
     const optionTexts = await harness.getOptionsText();

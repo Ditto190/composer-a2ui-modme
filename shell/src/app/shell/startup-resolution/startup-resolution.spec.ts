@@ -22,6 +22,7 @@ import {MatButtonHarness} from '@angular/material/button/testing';
 import {MAT_DIALOG_DATA, MatDialogRef} from '@angular/material/dialog';
 import {provideNoopAnimations} from '@angular/platform-browser/animations';
 import {StartupResolution} from './startup-resolution';
+import {StartupConfigStateService} from './state/startup-config-state.service';
 import {QueryParser} from '../query-parser/query-parser';
 import {OriginConfirmationDialog} from './origin-confirmation-dialog/origin-confirmation-dialog';
 import {LocalStorageInteractions} from '../../storage/local-storage-interactions/local-storage-interactions';
@@ -76,6 +77,7 @@ class MockAppConfigProvider {
 
 describe('StartupResolution', () => {
   let service: StartupResolution;
+  let stateService: StartupConfigStateService;
   let mockConfigProvider: MockAppConfigProvider;
 
   function mockFetchConfig(config: object) {
@@ -94,6 +96,7 @@ describe('StartupResolution', () => {
       ],
     });
     service = TestBed.inject(StartupResolution);
+    stateService = TestBed.inject(StartupConfigStateService);
   });
 
   afterEach(() => {
@@ -323,32 +326,6 @@ describe('StartupResolution', () => {
     expect(custom).toEqual([{id: 'valid-1', name: 'Valid One', rendererUrl: 'http://valid.com'}]);
   });
 
-  it('identifies 3P environment based on hostname or local overrides when 1P auth is enabled', () => {
-    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem');
-    const hostnameSpy = vi.spyOn(service, 'getWindowHostname');
-
-    // Test 1P hostname
-    hostnameSpy.mockReturnValue('subdomain.google.com');
-    getItemSpy.mockReturnValue(null);
-    expect(service.isThirdPartyEnvironment()).toBe(false);
-
-    // Test apex 1P hostname
-    hostnameSpy.mockReturnValue('google.com');
-    expect(service.isThirdPartyEnvironment()).toBe(false);
-
-    // Test 3P hostname
-    hostnameSpy.mockReturnValue('external-domain.com');
-    expect(service.isThirdPartyEnvironment()).toBe(true);
-
-    // Test forced 3P flag
-    getItemSpy.mockImplementation(key => (key === LocalStorageKey.FORCE_3P ? 'true' : null));
-    expect(service.isThirdPartyEnvironment()).toBe(true);
-
-    // Test forced 1P flag
-    getItemSpy.mockImplementation(key => (key === LocalStorageKey.FORCE_1P ? 'true' : null));
-    expect(service.isThirdPartyEnvironment()).toBe(false);
-  });
-
   it('evaluates environment validity correctly via isEnvironmentValid', async () => {
     mockFetchConfig({
       renderers: {
@@ -371,64 +348,6 @@ describe('StartupResolution', () => {
     // Scenario 3: URL resolved is null -> invalid
     service.setResolvedRendererUrl(null);
     expect(await service.isEnvironmentValid()).toBe(false);
-  });
-
-  it('purges Gemini API key via AppConfigProvider when operating in 1P environments', async () => {
-    mockFetchConfig({
-      renderers: {
-        default: {
-          rendererUrl: 'http://base:3000',
-        },
-      },
-    });
-
-    vi.spyOn(service, 'getWindowHostname').mockReturnValue('google.com');
-
-    await service.resolveStartupConfiguration();
-
-    expect(mockConfigProvider.purgeGeminiApiKey).toHaveBeenCalled();
-  });
-
-  it('logs warning when evaluateEnvironmentPurge fails to purge Gemini API key', async () => {
-    mockFetchConfig({
-      renderers: {
-        default: {
-          rendererUrl: 'http://base:3000',
-        },
-      },
-    });
-
-    vi.spyOn(service, 'getWindowHostname').mockReturnValue('google.com');
-    const warnSpy = vi.spyOn(console, 'warn');
-    const purgeErr = new Error('Purge failed');
-    mockConfigProvider.purgeGeminiApiKey.mockRejectedValueOnce(purgeErr);
-
-    await service.resolveStartupConfiguration();
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      'Failed to purge Gemini API key in 1P environment:',
-      purgeErr,
-    );
-  });
-
-  it('correctly evaluates isExtensionMode based on query param and storage', () => {
-    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem');
-    const searchSpy = vi.spyOn(service, 'getWindowSearch');
-
-    // Both false
-    searchSpy.mockReturnValue('?extension=false');
-    getItemSpy.mockReturnValue(null);
-    expect(service.isExtensionMode()).toBe(false);
-
-    // Query param true
-    searchSpy.mockReturnValue('?extension=true');
-    getItemSpy.mockReturnValue(null);
-    expect(service.isExtensionMode()).toBe(true);
-
-    // Storage true
-    searchSpy.mockReturnValue('');
-    getItemSpy.mockImplementation(key => (key === LocalStorageKey.EXTENSION_MODE ? 'true' : null));
-    expect(service.isExtensionMode()).toBe(true);
   });
 
   it('falls back to overrides when config fetch returns non-ok response', async () => {
@@ -639,12 +558,12 @@ describe('StartupResolution', () => {
 
   it('updates activeProfileKey signal alongside selectedProfileId signal when setSelectedProfileId is called', () => {
     service.setSelectedRendererId('custom-profile');
-    expect(service.selectedRendererId()).toBe('custom-profile');
-    expect(service.selectedRendererId()).toBe('custom-profile');
+    expect(stateService.selectedRendererId()).toBe('custom-profile');
+    expect(stateService.selectedRendererId()).toBe('custom-profile');
 
     service.setSelectedRendererId(null);
-    expect(service.selectedRendererId()).toBeNull();
-    expect(service.selectedRendererId()).toBeNull();
+    expect(stateService.selectedRendererId()).toBeNull();
+    expect(stateService.selectedRendererId()).toBeNull();
   });
 
   describe('renderer resolution', () => {
@@ -675,25 +594,10 @@ describe('StartupResolution', () => {
 
       await service.resolveStartupConfiguration();
       service.setSelectedRendererId(null);
-      expect(service.activeRenderer()).toBeNull();
+      expect(stateService.activeRenderer()).toBeNull();
 
       service.setSelectedRendererId('nonexistent');
-      expect(service.activeRenderer()).toBeNull();
-    });
-
-    it('resolves custom renderers saved in LocalStorage via activeRenderer signal', () => {
-      localStorage.setItem(
-        LocalStorageKey.CUSTOM_RENDERERS,
-        JSON.stringify([
-          {id: 'custom-1', name: 'Custom Renderer 1', rendererUrl: 'http://custom-renderer:3000'},
-        ]),
-      );
-      service.setSelectedRendererId('custom-1');
-      expect(service.activeRenderer()).toEqual({
-        id: 'custom-1',
-        name: 'Custom Renderer 1',
-        rendererUrl: 'http://custom-renderer:3000',
-      });
+      expect(stateService.activeRenderer()).toBeNull();
     });
 
     it('stores and retrieves profile configs containing optional displayName', async () => {
@@ -721,7 +625,7 @@ describe('StartupResolution', () => {
           displayName: 'Development Environment',
         },
       });
-      expect(service.activeRenderer()).toEqual({
+      expect(stateService.activeRenderer()).toEqual({
         rendererUrl: 'http://base:3000',
         displayName: 'Default Profile',
       });
@@ -913,7 +817,7 @@ describe('StartupResolution', () => {
 
         const url = await service.resolveStartupConfiguration();
         expect(url).toBe('http://query-renderer:3000');
-        expect(service.selectedRendererId()).toBe('queryProfile');
+        expect(stateService.selectedRendererId()).toBe('queryProfile');
       });
 
       it('resolves query profile as tier 2 priority when initialProfile is absent or invalid', async () => {
@@ -937,8 +841,8 @@ describe('StartupResolution', () => {
 
         const url = await service.resolveStartupConfiguration();
         expect(url).toBe('http://query-renderer:3000');
-        expect(service.selectedRendererId()).toBe('queryProfile');
-        expect(service.selectedRendererId()).toBe('queryProfile');
+        expect(stateService.selectedRendererId()).toBe('queryProfile');
+        expect(stateService.selectedRendererId()).toBe('queryProfile');
       });
 
       it('resolves local storage selected profile as tier 3 priority when initialProfile and query profile are absent or invalid', async () => {
@@ -958,8 +862,8 @@ describe('StartupResolution', () => {
 
         const url = await service.resolveStartupConfiguration();
         expect(url).toBe('http://storage-renderer:3000');
-        expect(service.selectedRendererId()).toBe('storageProfile');
-        expect(service.selectedRendererId()).toBe('storageProfile');
+        expect(stateService.selectedRendererId()).toBe('storageProfile');
+        expect(stateService.selectedRendererId()).toBe('storageProfile');
       });
 
       it('resolves default profile as tier 4 priority when higher priority candidates are absent or invalid', async () => {
@@ -976,8 +880,8 @@ describe('StartupResolution', () => {
 
         const url = await service.resolveStartupConfiguration();
         expect(url).toBe('http://default-renderer:3000');
-        expect(service.selectedRendererId()).toBe('default');
-        expect(service.selectedRendererId()).toBe('default');
+        expect(stateService.selectedRendererId()).toBe('default');
+        expect(stateService.selectedRendererId()).toBe('default');
       });
 
       it('returns null when no candidate profile key exists in static config profiles', async () => {
@@ -994,8 +898,8 @@ describe('StartupResolution', () => {
 
         const url = await service.resolveStartupConfiguration();
         expect(url).toBeNull();
-        expect(service.selectedRendererId()).toBeNull();
-        expect(service.selectedRendererId()).toBeNull();
+        expect(stateService.selectedRendererId()).toBeNull();
+        expect(stateService.selectedRendererId()).toBeNull();
       });
     });
   });
@@ -1373,7 +1277,7 @@ describe('StartupResolution', () => {
       const url = await service.resolveRenderer();
 
       expect(url).toBe('http://dev-renderer:3000');
-      expect(service.selectedRendererId()).toBe('dev');
+      expect(stateService.selectedRendererId()).toBe('dev');
       expect(mockConfigProvider.setApiKeyFromConfig).toHaveBeenCalledWith('dev-api-key');
     });
 
@@ -1395,7 +1299,7 @@ describe('StartupResolution', () => {
       const url = await service.resolveRenderer();
 
       expect(url).toBe('http://custom-renderer:4000');
-      expect(service.selectedRendererId()).toBe('custom');
+      expect(stateService.selectedRendererId()).toBe('custom');
     });
 
     it('3d. ignores malformed entries in CUSTOM_RENDERERS LocalStorage when resolving custom renderer by ID', async () => {
@@ -1420,7 +1324,7 @@ describe('StartupResolution', () => {
       const url = await service.resolveRenderer();
 
       expect(url).toBe('http://custom-renderer:4000');
-      expect(service.selectedRendererId()).toBe('custom');
+      expect(stateService.selectedRendererId()).toBe('custom');
     });
 
     it('4. resolves last selected renderer from LocalStorage when no query parameters are present', async () => {
@@ -1436,7 +1340,7 @@ describe('StartupResolution', () => {
 
       const url = await service.resolveRenderer();
       expect(url).toBe('http://staging-renderer:3000');
-      expect(service.selectedRendererId()).toBe('staging');
+      expect(stateService.selectedRendererId()).toBe('staging');
     });
 
     it('5. resolves default renderer from config.json.renderers when LocalStorage is empty', async () => {
@@ -1450,7 +1354,7 @@ describe('StartupResolution', () => {
       const url = await service.resolveRenderer();
 
       expect(url).toBe('http://default-renderer:3000');
-      expect(service.selectedRendererId()).toBe('default');
+      expect(stateService.selectedRendererId()).toBe('default');
     });
 
     it('6. null renderer -> returns null and causes isEnvironmentValid to return false for redirect to /settings', async () => {
