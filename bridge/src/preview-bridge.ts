@@ -33,27 +33,16 @@ import {
   CatalogDetails,
   ThemePreference,
 } from './bridge-message';
-export * from './bridge-message';
+
+import {SurfaceResizeObserver} from './surface-resize-observer';
 
 import type {
-  DataModelObservable,
   SurfaceInstance,
   SurfaceGroupLike,
   RendererConfig,
   SurfaceStateSubscription,
   ComponentUsages,
-  ComponentUsage,
 } from './render-config';
-
-export type {
-  DataModelObservable,
-  SurfaceInstance,
-  SurfaceGroupLike,
-  RendererConfig,
-  SurfaceStateSubscription,
-  ComponentUsages,
-  ComponentUsage,
-};
 
 /**
  * A framework-agnostic processor interface that handles A2UI protocol payloads.
@@ -136,10 +125,7 @@ export class PreviewBridge {
   /** The single active framework rendering stack connection hook. */
   private activeRenderer: ActiveRenderer | null = null;
 
-  /**
-   * A state flag indicating whether the bridge is actively listening to global window message events.
-   * Prevents duplicate event listener registration on the window object.
-   */
+  /** Indicates whether the bridge is actively listening for incoming messages. */
   private isListening = false;
 
   /**
@@ -157,20 +143,44 @@ export class PreviewBridge {
   /** Tracks the currently applied theme in the DOM to avoid redundant DOM mutations. */
   private currentAppliedTheme?: ThemePreference;
 
+  /** Handles DOM mutations and window viewport resizing to broadcast dimension updates to the host. */
+  private readonly surfaceResizeObserver = new SurfaceResizeObserver(dimensions => {
+    this.sendMessage({
+      type: PreviewBridgeMessageType.SURFACE_RESIZE,
+      payload: dimensions,
+    });
+  });
+
   private readonly cachedParentOrigin: string | null = null;
 
   /**
    * Initializes a new PreviewBridge instance.
-   * Sets up the global window message listener and applies initial theme from URL if present.
+   * Sets up the global window message listener, observes layout dimensions, and applies initial theme from URL if present.
    */
   constructor() {
-    if (typeof window !== 'undefined' && window.location && window.location.search) {
+    if (typeof window !== 'undefined' && window.location?.search) {
       const params = new URLSearchParams(window.location.search);
       this.cachedParentOrigin = params.get('origin');
     }
     this.initMessageListener();
     setupInstrumentationOverrides(this);
     this.initThemeFromUrl();
+  }
+
+  /**
+   * Measures the rendered content's maximum scroll/offset dimensions and dispatches a
+   * `SURFACE_RESIZE` message to the host window if dimensions have changed.
+   *
+   * This is triggered on:
+   * 1. DOM mutations and element resize events via ResizeObserver.
+   * 2. Window viewport resize events.
+   * 3. Initial renderer attachment (`attachRenderer`).
+   * 4. A2UI surface lifecycle events (`RENDER_A2UI` and surface clearing).
+   *
+   * @param force When true, bypasses the dimension deduplication cache.
+   */
+  dispatchSurfaceResize(force = false): void {
+    this.surfaceResizeObserver.measureAndDispatch(force);
   }
 
   /**
@@ -262,6 +272,8 @@ export class PreviewBridge {
       type: PreviewBridgeMessageType.RENDERER_READY,
     });
 
+    this.dispatchSurfaceResize();
+
     const attachConnection = {
       unsubscribe: () => {
         if (this.activeRenderer?.processor === processor) {
@@ -284,6 +296,7 @@ export class PreviewBridge {
    */
   destroy(): void {
     teardownInstrumentationOverrides();
+    this.surfaceResizeObserver.destroy();
     if (typeof window !== 'undefined') {
       window.removeEventListener('message', this.messageListener);
     }
@@ -542,6 +555,9 @@ export class PreviewBridge {
       if (hasCreateSurface && surfaceId) {
         this.activeRenderer.config.onSurfaceReady(surfaceId);
       }
+
+      // Defer measurement to the next event loop tick so asynchronous framework rendering and DOM attachment complete.
+      setTimeout(() => this.dispatchSurfaceResize(), 0);
     } else {
       console.warn('PreviewBridge: Unexpected non-array RENDER_A2UI payload received:', payload);
     }
@@ -573,6 +589,9 @@ export class PreviewBridge {
     if (config.onSurfaceCleared) {
       config.onSurfaceCleared();
     }
+
+    // Defer measurement to allow framework component unmounting and DOM cleanup to settle.
+    setTimeout(() => this.dispatchSurfaceResize(), 0);
   }
 
   /**
