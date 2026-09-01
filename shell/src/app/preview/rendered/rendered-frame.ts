@@ -14,13 +14,26 @@
  * limitations under the License.
  */
 
-import {Component, inject, viewChild, ElementRef, effect, computed, untracked} from '@angular/core';
+import {
+  Component,
+  inject,
+  viewChild,
+  ElementRef,
+  effect,
+  computed,
+  untracked,
+  input,
+  signal,
+} from '@angular/core';
 import {DomSanitizer} from '@angular/platform-browser';
-import {SafeUrlValidatorService} from '../../shared/security/safe-url-validator.service';
+import {PreviewBridgeMessageType} from 'a2ui-bridge';
+import {isValidHttpUrl} from '../../utils/url';
 import {StartupResolution} from '../../shell/startup-resolution/startup-resolution';
 import {HostCommunication} from '../../shell/host-communication/host-communication';
 import {AppConfigProvider} from '../../settings/app-config-provider/app-config-provider';
 import {ChatState} from '../../chat/chat-state/chat-state';
+
+import {CrossFrameValidator} from '../../shell/cross-frame-validator/cross-frame-validator';
 
 /**
  * Orchestrates the secure, sandboxed iframe rendering the active preview target,
@@ -35,11 +48,22 @@ import {ChatState} from '../../chat/chat-state/chat-state';
 })
 export class RenderedFrame {
   private sanitizer = inject(DomSanitizer);
-  private urlValidator = inject(SafeUrlValidatorService);
   private startupResolution = inject(StartupResolution);
   private hostCommunication = inject(HostCommunication);
   private configProvider = inject(AppConfigProvider);
   private chatState = inject(ChatState);
+
+  /** Optional layout payload to render immediately into the guest iframe. */
+  readonly payload = input<unknown[] | null | undefined>(null);
+
+  /** Tracks dynamic surface height reported by the guest renderer frame. */
+  readonly dynamicHeight = signal<number | null>(null);
+
+  /** Computed pixel height string or 100% when rendered within dynamic/inline layout contexts. */
+  readonly frameHeight = computed(() => {
+    const h = this.dynamicHeight();
+    return h && h > 0 ? h : null;
+  });
 
   /** Programmatic streams active locking Signal, mapping visual lock bounds. */
   protected readonly isLocked = this.chatState.isProgrammaticStreamActive;
@@ -88,7 +112,7 @@ export class RenderedFrame {
       url.searchParams.set('theme', initialTheme);
 
       const urlString = url.toString();
-      if (!this.urlValidator.isValidHttpUrl(urlString)) {
+      if (!isValidHttpUrl(urlString)) {
         console.error('Renderer URL failed safe validation:', urlString);
         return null;
       }
@@ -101,14 +125,100 @@ export class RenderedFrame {
   });
 
   constructor() {
-    effect(() => {
+    effect(onCleanup => {
       const ref = this.iframeRef();
-      this.hostCommunication.registerIframe(ref?.nativeElement ?? null);
+      const el = ref?.nativeElement ?? null;
+      if (el) {
+        this.hostCommunication.registerIframe(el);
+        onCleanup(() => {
+          this.hostCommunication.unregisterIframe(el);
+        });
+      }
     });
 
     effect(() => {
       const theme = this.configProvider.themePreference();
       this.hostCommunication.sendTheme(theme);
     });
+
+    // Outbound payload dispatch: forwards updated A2UI declarative JSON payloads
+    // from the host/parent component to the renderer iframe over postMessage whenever
+    // the payload input signal emits a non-empty array and the iframe element is available.
+    effect(() => {
+      const payload = this.payload();
+      const iframe = this.iframeRef()?.nativeElement;
+      if (iframe && payload !== null && Array.isArray(payload) && payload.length > 0) {
+        this.hostCommunication.sendRenderA2UI(payload, iframe);
+      }
+    });
+
+    // Inbound bridge listener: adjusts the iframe container height to fit the rendered
+    // A2UI content dimensions, eliminating unnecessary inner scrollbars or clipping.
+    effect(() => {
+      const envelope = this.hostCommunication.messageStream();
+      if (envelope) {
+        const myIframe = this.iframeRef()?.nativeElement;
+        const myWindow = myIframe?.contentWindow;
+
+        // In multi-frame environments, ignore messages dispatched by other iframes
+        if (envelope.sourceWindow && myWindow && envelope.sourceWindow !== myWindow) {
+          return;
+        }
+
+        if (
+          envelope.type === PreviewBridgeMessageType.RENDERER_READY ||
+          envelope.type === PreviewBridgeMessageType.A2UI_CATALOG
+        ) {
+          const payload = untracked(() => this.payload());
+          if (myIframe && payload !== null && Array.isArray(payload) && payload.length > 0) {
+            this.hostCommunication.sendRenderA2UI(payload, myIframe);
+          }
+        } else if (envelope.type === PreviewBridgeMessageType.SURFACE_RESIZE) {
+          if (CrossFrameValidator.validateIncomingMessage(envelope)) {
+            const resizePayload = envelope.payload as {height: number; width?: number};
+            this.dynamicHeight.set(resizePayload.height);
+          }
+        }
+      }
+    });
+  }
+
+  /**
+   * Forwards wheel events from the guest iframe to parent scroll containers
+   * to ensure mouse/trackpad scrolling is not trapped by iframe viewports.
+   */
+  protected setupIframeWheelForwarding(iframe: HTMLIFrameElement): void {
+    try {
+      iframe.contentWindow?.addEventListener(
+        'wheel',
+        (event: WheelEvent) => {
+          const scrollParent = iframe.closest('.chat-history-container, .side-canvas-viewport');
+          if (scrollParent) {
+            scrollParent.scrollBy({
+              top: event.deltaY,
+              left: event.deltaX,
+              behavior: 'auto',
+            });
+          }
+        },
+        {passive: true},
+      );
+    } catch {
+      // Safe fallback if frame is restricted by cross-origin policies
+    }
+  }
+
+  /**
+   * Dispatches the active A2UI payload to the renderer iframe once the DOM iframe element finishes loading.
+   */
+  protected syncPayloadOnIframeLoad(): void {
+    const payload = this.payload();
+    const iframe = this.iframeRef()?.nativeElement;
+    if (iframe) {
+      this.setupIframeWheelForwarding(iframe);
+      if (payload !== null && Array.isArray(payload) && payload.length > 0) {
+        this.hostCommunication.sendRenderA2UI(payload, iframe);
+      }
+    }
   }
 }

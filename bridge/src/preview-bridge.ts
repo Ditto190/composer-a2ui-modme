@@ -35,6 +35,7 @@ import {
 } from './bridge-message';
 
 import {SurfaceResizeObserver} from './surface-resize-observer';
+export * from './surface-resize-observer';
 
 import type {
   SurfaceInstance,
