@@ -37,6 +37,16 @@ describe('SurfacePartitioner', () => {
       expect(normalizeA2uiItems([null, 'invalid', 123])).toEqual([]);
     });
 
+    it('filters out non-A2UI items such as tool calls', () => {
+      const mixed = [
+        {createSurface: {surfaceId: 's1', catalogId: 'c1'}},
+        {name: 'show_vacation_booking_form', args: {}, id: 'call_123'},
+      ];
+      const normalized = normalizeA2uiItems(mixed);
+      expect(normalized.length).toBe(1);
+      expect(normalized[0].createSurface).toBeDefined();
+    });
+
     it('detects canvas components correctly', () => {
       expect(hasA2uiCanvasComponent([])).toBe(false);
       expect(
@@ -428,6 +438,26 @@ describe('SurfacePartitioner', () => {
         >) || [];
       expect(inlineComps.length).toBe(3);
       expect(inlineComps.map(c => c['id'])).toEqual(['root-list', 'hotel-card', 'car-card']);
+    });
+
+    it('preserves deleteSurface items in partitioned payload', () => {
+      const payloadWithDelete = [
+        {
+          version: 'v0.9',
+          createSurface: {surfaceId: 'surf-1', catalogId: 'cat-1'},
+        },
+        {
+          version: 'v0.9',
+          deleteSurface: {surfaceId: 'surf-old'},
+        },
+      ];
+
+      const partitioned = partitionA2uiSurfacePayload(payloadWithDelete);
+      expect(partitioned.hasCanvas).toBe(false);
+      expect(partitioned.inlinePayload).not.toBeNull();
+      expect(
+        partitioned.inlinePayload?.some(item => item.deleteSurface?.surfaceId === 'surf-old'),
+      ).toBe(true);
     });
   });
 });

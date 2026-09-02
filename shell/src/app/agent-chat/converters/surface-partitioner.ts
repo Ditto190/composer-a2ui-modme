@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import {RenderA2uiItem} from 'a2ui-bridge';
+import {A2UI_UPDATE_KEYS, RenderA2uiItem} from 'a2ui-bridge';
 import {CanvasArtifact} from '../chat-message/types';
 
 interface ExtractedCanvasInfo {
@@ -266,23 +266,38 @@ export function hasA2uiCanvasComponent(items: RenderA2uiItem[]): boolean {
 }
 
 /**
- * Normalizes an array of raw layout updates into valid `RenderA2uiItem` specifications.
+ * Checks if a candidate object is a valid A2UI v0.9 update specification item.
+ *
+ * An object is recognized as an A2UI item if it contains at least one of the canonical
+ * update operation keys ({@link A2UI_UPDATE_KEYS}) with a defined non-null value.
+ * Used during streaming ingestion to partition genuine A2UI UI payloads from
+ * non-A2UI messages (such as agent tool/function calls) so they are preserved
+ * without causing canvas dispatch errors.
+ *
+ * @param item The candidate object or chunk to inspect.
+ * @returns `true` if the item contains a valid A2UI update operation, `false` otherwise.
+ */
+export function isA2uiItem(item: unknown): boolean {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const obj = item as Record<string, unknown>;
+  return A2UI_UPDATE_KEYS.some(key => key in obj && obj[key] !== undefined && obj[key] !== null);
+}
+
+/**
+ * Normalizes an array of raw layout updates into valid `RenderA2uiItem` specifications,
+ * filtering out any non-A2UI objects.
  */
 export function normalizeA2uiItems(items: unknown[]): RenderA2uiItem[] {
   if (!items || !Array.isArray(items)) return [];
 
-  return items
-    .map(item => {
-      if (typeof item === 'object' && item !== null) {
-        const itemObj = item as Record<string, unknown>;
-        return {
-          version: 'v0.9',
-          ...itemObj,
-        } as RenderA2uiItem;
-      }
-      return null;
-    })
-    .filter((item): item is RenderA2uiItem => item !== null);
+  return items.filter(isA2uiItem).map(item => {
+    const itemObj = item as Record<string, unknown>;
+    return {
+      version:
+        typeof itemObj['version'] === 'string' && itemObj['version'] ? itemObj['version'] : 'v0.9',
+      ...itemObj,
+    } as RenderA2uiItem;
+  });
 }
 
 /**
@@ -323,7 +338,8 @@ function categorizeSurfaceItems(items: RenderA2uiItem[]): CategorizedSurfaceItem
           allComponents.push(comp as Record<string, unknown>);
         }
       }
-    } else if (!item.createSurface && !item.updateDataModel) {
+    }
+    if (item.deleteSurface) {
       otherItems.push(item);
     }
   }
