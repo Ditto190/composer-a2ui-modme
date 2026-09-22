@@ -38,6 +38,7 @@ import {HostCommunication} from '../../shell/host-communication/host-communicati
 import {ScreenshotCaptureService} from '../../shell/screenshot/screenshot-capture.service';
 import {StartupResolution} from '../../shell/startup-resolution/startup-resolution';
 import {CatalogManagement} from '../../storage/catalog-management/catalog-management';
+import {doesCatalogSupportMcp} from '../../storage/models/catalog-storage.model';
 import {ChatCleaner} from '../chat-cleaner/chat-cleaner';
 import {parseAndHealJsonLines} from '../a2ui-payload-parser/a2ui-payload-parser';
 import {ComposerPanelId, OpenPanelEvent} from '../../shell/composer-workspace/composer-panel-id';
@@ -46,6 +47,7 @@ import {ChatState} from '../chat-state/chat-state';
 import {LlmMessage, MessageRole} from '../llm-client/llm-client';
 import {PipelineStatus} from '../pipeline-status/pipeline-status';
 import {SystemInstructionsDialog} from '../system-instructions-dialog/system-instructions-dialog';
+import {McpClientManagerService} from '../../mcp/mcp-client-manager.service';
 
 /**
  * Directive responsible for automatically scrolling a container to the bottom whenever its inputs change.
@@ -102,8 +104,15 @@ export class ChatPanel {
   private readonly hostCommunication = inject(HostCommunication);
   private readonly fileIngestionService = inject(FileIngestionService);
   private readonly screenshotCaptureService = inject(ScreenshotCaptureService);
+  protected readonly mcpManager = inject(McpClientManagerService);
 
   protected readonly includeScreenshot = signal<boolean>(false);
+  protected readonly isMcpSupported = computed(() =>
+    doesCatalogSupportMcp(this.catalogManagement.activeCatalog()),
+  );
+  protected readonly activeMcpServerCount = computed(
+    () => this.mcpManager.getActiveServersWithTools().length,
+  );
 
   protected onIncludeScreenshotChange(checked: boolean): void {
     this.includeScreenshot.set(checked);

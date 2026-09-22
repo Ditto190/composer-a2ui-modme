@@ -32,7 +32,10 @@ import {
   CreateSurfaceCommand,
   CatalogDetails,
   ThemePreference,
+  McpResponsePayload,
 } from './bridge-message';
+
+import {IframeMcpClient} from './iframe-mcp-client';
 
 import {SurfaceResizeObserver} from './surface-resize-observer';
 export * from './surface-resize-observer';
@@ -220,6 +223,31 @@ export class PreviewBridge {
 
   private readonly cachedParentOrigin: string | null = null;
 
+  /** Cached iframe MCP proxy client. */
+  private mcpClient: IframeMcpClient | null = null;
+
+  /**
+   * Returns the IframeMcpClient proxy, creating and caching it if needed.
+   */
+  getMcpClient(): IframeMcpClient {
+    if (!this.mcpClient) {
+      this.mcpClient = new IframeMcpClient(payload => {
+        this.sendMessage({
+          type: PreviewBridgeMessageType.MCP_REQUEST,
+          payload,
+        });
+      });
+    }
+    return this.mcpClient;
+  }
+
+  /**
+   * Returns the currently attached renderer processor, if any.
+   */
+  getActiveProcessor(): RendererProcessor | undefined {
+    return this.activeRenderer?.processor;
+  }
+
   /**
    * Initializes a new PreviewBridge instance.
    * Sets up the global window message listener, observes layout dimensions, and applies initial theme from URL if present.
@@ -386,6 +414,7 @@ export class PreviewBridge {
       }
     }
     this.activeConnections.clear();
+    this.mcpClient = null;
   }
 
   private resolveExpectedParentOrigin(): string {
@@ -475,6 +504,10 @@ export class PreviewBridge {
         void this.handleGetComponentUsages();
         break;
 
+      case PreviewBridgeMessageType.MCP_RESPONSE:
+        this.handleMcpResponse(data.payload);
+        break;
+
       case PreviewBridgeMessageType.SET_THEME:
         this.handleSetTheme(data.payload);
         break;
@@ -483,6 +516,15 @@ export class PreviewBridge {
         console.warn(`PreviewBridge: Unrecognized incoming message type: ${data.type}`);
     }
   };
+
+  /**
+   * Routes incoming MCP_RESPONSE messages to the IframeMcpClient pending request.
+   */
+  private handleMcpResponse(payload: unknown): void {
+    const payloadObj = payload as McpResponsePayload | undefined;
+    if (!payloadObj || typeof payloadObj.requestId !== 'string') return;
+    this.mcpClient?.handleResponse(payloadObj);
+  }
 
   /**
    * Handles incoming theme change requests.
@@ -633,7 +675,15 @@ export class PreviewBridge {
         }
       }
 
-      this.activeRenderer.processor.processMessages(payload as A2uiMessage[]);
+      let clonedPayload = payload as A2uiMessage[];
+      if (typeof structuredClone === 'function') {
+        try {
+          clonedPayload = structuredClone(payload) as A2uiMessage[];
+        } catch {
+          clonedPayload = payload as A2uiMessage[];
+        }
+      }
+      this.activeRenderer.processor.processMessages(clonedPayload);
 
       if (hasCreateSurface && surfaceId) {
         this.activeRenderer.config.onSurfaceReady(surfaceId);
