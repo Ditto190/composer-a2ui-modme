@@ -39,6 +39,19 @@
 }
 
 :host ::ng-deep .dockview-root {
+  // The frame follows the renderer's reported content height, so a docked
+  // preview taller than its panel scrolls inside the panel instead of being
+  // clipped beneath the adjacent debug panel.
+  a2ui-composer-rendered-frame {
+    overflow-y: auto;
+  }
+
+  // Without a reported height, fill the panel however short it is.
+  a2ui-composer-rendered-frame .rendered-frame-container,
+  a2ui-composer-rendered-frame .rendered-frame-container .preview-iframe {
+    min-height: 0;
+  }
+
   --dv-activegroup-hiddenpanel-tab-background-color: var(--mat-sys-surface-container);
   --dv-activegroup-hiddenpanel-tab-color: var(--mat-sys-on-surface-variant);
   --dv-activegroup-visiblepanel-tab-background-color: var(--mat-sys-surface-container);

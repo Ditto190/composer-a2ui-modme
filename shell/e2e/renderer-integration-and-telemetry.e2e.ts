@@ -428,6 +428,37 @@ for (const config of CONFIGS) {
       await expect(searchButton).toBeEnabled();
     });
 
+    test('keeps tall content inside the docked preview and its controls reachable', async ({
+      page,
+    }) => {
+      await page.setViewportSize({width: 1280, height: 480});
+      await page.goto(`/?renderer=${config.rendererUrl}`);
+      await expect(page.locator('.workspace-container')).toBeVisible();
+      const iframe = page.frameLocator('iframe.preview-iframe');
+      const searchButton = iframe.getByRole('button', {name: 'Search Cars'});
+      await expect(searchButton).toBeVisible();
+
+      const panel = page.locator('.dockview-root a2ui-composer-rendered-frame');
+
+      // Exercise real overflow rather than passing because the sample fits the panel.
+      await expect
+        .poll(() => panel.evaluate(host => host.scrollHeight - host.clientHeight))
+        .toBeGreaterThan(0);
+
+      // Content taller than the docked preview must scroll inside its panel,
+      // rather than extending underneath the adjacent debug panel.
+      expect(
+        await panel.evaluate(host => {
+          const group = host.closest('.dv-render-overlay')!;
+          return host.getBoundingClientRect().bottom - group.getBoundingClientRect().bottom;
+        }),
+      ).toBeLessThanOrEqual(1);
+
+      // Clicking scrolls the panel; it fails if another panel intercepts the click.
+      await searchButton.click();
+      await expect(page.locator('.dv-tab', {hasText: /^Events/})).toContainText('(1)');
+    });
+
     // Depends on full-suite ordering. Run alone or under -g, the date input
     // comes back empty and this fails on two of three renderers; it passes
     // every time in the full suite. Reproduced on a clean tree, so it is
