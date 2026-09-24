@@ -6035,7 +6035,7 @@ __metadata:
     "@vitest/coverage-v8": "npm:4.1.10"
     a2ui-bridge: "npm:0.1.0"
     angular-eslint: "npm:22.1.0"
-    dockview: "npm:7.0.3"
+    dockview-core: "npm:7.0.3"
     dompurify: "npm:3.4.14"
     eslint: "npm:10.7.0"
     jsdom: "npm:29.1.1"
@@ -7251,19 +7251,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"dockview-core@npm:^7.0.3":
+"dockview-core@npm:7.0.3":
   version: 7.0.3
   resolution: "dockview-core@npm:7.0.3"
   checksum: 10c0/11805b9378c1798027c956b3935ad9ee1b6a46dd1d0bbb43ead4d5152863991de073fd78f6f723cc1393ca741299b12130a530b4b9837e278158e7fc0b993051
-  languageName: node
-  linkType: hard
-
-"dockview@npm:7.0.3":
-  version: 7.0.3
-  resolution: "dockview@npm:7.0.3"
-  dependencies:
-    dockview-core: "npm:^7.0.3"
-  checksum: 10c0/1b6d48b9fdb35f3da626208e84cd6cb2c48891dcc860ab928f7b4edc483d965d5cc8b202962838185272ba2ec8e6d2a2e6b3bf2f52bcd01d09dd22d2ef4bca13
   languageName: node
   linkType: hard
 
